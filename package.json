@@ -1,0 +1,29 @@
+{
+  "name": "letterhead",
+  "version": "1.1.0",
+  "description": "Personal mail merge for macOS",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "keywords": [],
+  "author": "Shabd Warar",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "imapflow": "^2.9.1",
+    "mailparser": "^3.12.4",
+    "nodemailer": "^10.2.1"
+  },
+  "devDependencies": {
+    "@electron/packager": "^18.4.4",
+    "@fontsource/fraunces": "^5.3.0",
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "electron": "^33.4.11",
+    "esbuild": "^0.28.2",
+    "hoodiecrow-imap": "^3.3.1",
+    "papaparse": "^5.7.0"
+  },
+  "productName": "Letterhead"
+}

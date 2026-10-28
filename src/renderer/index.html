@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'">
+<title>Letterhead</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="drag sidebar-top"></div>
+    <div class="brand">
+      <svg class="seal" viewBox="0 0 40 40" aria-hidden="true"><path d="M20 3.5c2.2 0 3 1.9 4.9 2.6 1.9.7 3.8-.3 5.4 1 1.6 1.3 1.1 3.4 2.1 5.1 1 1.7 3.1 2.3 3.4 4.3.3 2-1.5 3.2-1.8 5.2-.3 2 1 3.7.1 5.5-.9 1.8-3.1 1.8-4.6 3.1-1.5 1.3-1.7 3.5-3.6 4.2-1.9.7-3.5-.8-5.5-.8s-3.6 1.5-5.5.8c-1.9-.7-2.1-2.9-3.6-4.2-1.5-1.3-3.7-1.3-4.6-3.1-.9-1.8.4-3.5.1-5.5-.3-2-2.1-3.2-1.8-5.2.3-2 2.4-2.6 3.4-4.3 1-1.7.5-3.8 2.1-5.1 1.6-1.3 3.5-.3 5.4-1C17 5.4 17.8 3.5 20 3.5z" fill="var(--accent)"/><circle cx="20" cy="20.5" r="9.2" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="1"/><text x="20" y="25.2" text-anchor="middle" font-family="Fraunces" font-style="italic" font-size="14" fill="#fff">L</text></svg>
+      <div><div class="brand-name">Letterhead</div><div class="brand-sub">Personal mail merge</div></div>
+    </div>
+    <nav class="nav">
+      <div class="nav-label">Outreach</div>
+      <button class="nav-item" data-tab="account"><svg viewBox="0 0 20 20"><circle cx="10" cy="7" r="3.2"/><path d="M3.8 16.5c.9-3 3.3-4.6 6.2-4.6s5.3 1.6 6.2 4.6"/></svg><span>Account</span><i class="dot" id="nav-acct-dot"></i></button>
+      <button class="nav-item" data-tab="recipients"><svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2"/><path d="M3 8h14M7.5 8v8"/></svg><span>Recipients</span><em class="badge" id="nav-rcpt-count"></em></button>
+      <button class="nav-item" data-tab="letter"><svg viewBox="0 0 20 20"><path d="M4 3.5h8.5L16 7v9.5H4z"/><path d="M12.5 3.5V7H16M7 10.5h6M7 13.5h4"/></svg><span>Letter</span></button>
+      <button class="nav-item" data-tab="drafts"><svg viewBox="0 0 20 20"><path d="M3.5 6.5h13v9a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z"/><path d="M3.5 6.5 6 3.5h8l2.5 3M7.5 10.5h5"/></svg><span>Drafts</span><em class="badge" id="nav-drafts-count"></em></button>
+      <button class="nav-item" data-tab="send"><svg viewBox="0 0 20 20"><path d="M3 9.6 16.8 3.4 13.6 16.6 9.6 11.2z"/><path d="M9.6 11.2 16.8 3.4"/></svg><span>Send</span><i class="pulse" id="nav-send-pulse"></i></button>
+      <button class="nav-item" data-tab="schedule"><svg viewBox="0 0 20 20"><rect x="3.5" y="4.5" width="13" height="12" rx="2"/><path d="M3.5 8.5h13M7 3v3M13 3v3"/><path d="M10 11v2.2l1.5 1"/></svg><span>Schedule</span><em class="badge" id="nav-sched-count"></em></button>
+      <div class="nav-label">App</div>
+      <button class="nav-item" data-tab="settings"><svg viewBox="0 0 20 20"><path d="M4 6h7M14 6h2M4 14h2M9 14h7"/><circle cx="12.5" cy="6" r="1.6"/><circle cx="7.5" cy="14" r="1.6"/></svg><span>Settings</span></button>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="meter">
+        <div class="meter-row"><span>Last 24 hours</span><b id="meter-text">0 of 500</b></div>
+        <div class="meter-bar"><i id="meter-fill"></i></div>
+      </div>
+      <button class="awake-chip hidden" id="awake-chip" title="Open Schedule"><svg viewBox="0 0 16 16"><path d="M10.8 2.6a5.6 5.6 0 1 0 2.6 8.6A4.6 4.6 0 0 1 10.8 2.6z"/><path d="M12.6 3.2v2.2M11.5 4.3h2.2"/></svg><span id="awake-text">Keeping your Mac awake</span></button>
+      <div class="acct-chip" id="acct-chip"><i class="led"></i><span id="acct-chip-text">Not connected</span></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="drag main-top"></div>
+    <div class="update-bar hidden" id="upd-bar"><span class="upd-ico"><svg viewBox="0 0 16 16"><path d="M8 2.5v7.5M4.8 6.8 8 10l3.2-3.2M3 13h10"/></svg></span><span class="upd-text" id="upd-text"></span><span class="grow"></span><button class="ghost sm" id="upd-later">Later</button><button class="primary sm" id="upd-go">Restart to update</button></div>
+
+    <!-- ACCOUNT -->
+    <section class="view" id="view-account">
+      <header class="vhead">
+        <div><h1>Your account</h1><p class="lede">Letterhead sends through your own mailbox, so replies land where you already read mail.</p></div>
+      </header>
+      <div class="cols cols-account">
+        <div class="card form-card">
+          <div class="seg" id="preset-seg" role="tablist">
+            <button data-preset="gmail" class="on">Gmail</button>
+            <button data-preset="icloud">iCloud Mail</button>
+            <button data-preset="custom">Other SMTP</button>
+          </div>
+          <div class="grid2">
+            <label class="fld"><span>Your name</span><input id="a-fromName" placeholder="Shabd Warar" autocomplete="name"></label>
+            <label class="fld"><span>Email address</span><input id="a-user" placeholder="you@gmail.com" autocomplete="email" spellcheck="false"></label>
+          </div>
+          <label class="fld"><span id="a-pass-label">App password</span>
+            <div class="pw"><input id="a-pass" type="password" placeholder="16 characters from Google" spellcheck="false" autocomplete="off"><button class="ghost sm" id="a-pass-toggle" type="button">Show</button></div>
+            <small class="hint" id="a-pass-hint">Saved passwords stay on this Mac, encrypted with your Keychain. Leave blank to keep the saved one.</small>
+          </label>
+          <div class="custom-only">
+            <div class="grid3">
+              <label class="fld span2"><span>SMTP server</span><input id="a-host" placeholder="smtp.example.com" spellcheck="false"></label>
+              <label class="fld"><span>Port</span><input id="a-port" type="number" placeholder="465"></label>
+            </div>
+            <div class="grid2">
+              <label class="fld"><span>Security</span><select id="a-security"><option value="ssl">SSL/TLS (usually 465)</option><option value="starttls">STARTTLS (usually 587)</option><option value="none">None (local testing only)</option></select></label>
+              <label class="fld"><span>Login, if different</span><input id="a-login" placeholder="Same as email address" spellcheck="false"></label>
+            </div>
+            <div class="grid3 imap3">
+              <label class="fld"><span>IMAP server, for Drafts</span><input id="a-imapHost" placeholder="imap.example.com" spellcheck="false"></label>
+              <label class="fld"><span>IMAP security</span><select id="a-imapSecurity"><option value="ssl">SSL/TLS</option><option value="starttls">STARTTLS</option><option value="none">None (testing)</option></select></label>
+              <label class="fld"><span>IMAP port</span><input id="a-imapPort" type="number" placeholder="993"></label>
+            </div>
+          </div>
+          <details class="more">
+            <summary>More options</summary>
+            <div class="grid2">
+              <label class="fld"><span>Reply-to address</span><input id="a-replyTo" placeholder="Optional" spellcheck="false"></label>
+              <label class="fld"><span>Send from alias</span><input id="a-fromEmail" placeholder="Optional, must be set up in your mail provider" spellcheck="false"></label>
+            </div>
+          </details>
+          <div class="actions">
+            <button class="ghost" id="a-forget">Forget account</button>
+            <span class="grow"></span>
+            <button class="secondary" id="a-verify">Test connection</button>
+            <button class="primary" id="a-save">Save account</button>
+          </div>
+          <div class="inline-status" id="a-status"></div>
+        </div>
+        <div class="guide card soft" id="guide-gmail">
+          <div class="eyebrow">Gmail setup, about two minutes</div>
+          <h3>Make an App Password</h3>
+          <ol class="steps">
+            <li><b>Turn on 2-Step Verification</b> for your Google Account if it is not on yet. Google only offers App Passwords with it enabled.</li>
+            <li>Open <a href="#" data-ext="https://myaccount.google.com/apppasswords">myaccount.google.com/apppasswords</a> and sign in.</li>
+            <li>Type a name like <span class="kbd">Letterhead</span> and click <b>Create</b>.</li>
+            <li>Copy the 16 character code into the App password box here. Spaces are fine.</li>
+          </ol>
+          <p class="fine">If the page says the setting is unavailable, your account may be managed by a school or work admin who has turned App Passwords off. A personal Gmail account works best.</p>
+        </div>
+        <div class="guide card soft hidden" id="guide-icloud">
+          <div class="eyebrow">iCloud setup</div>
+          <h3>Make an app-specific password</h3>
+          <ol class="steps">
+            <li>Sign in at <a href="#" data-ext="https://account.apple.com">account.apple.com</a>.</li>
+            <li>Under Sign-In and Security, choose <b>App-Specific Passwords</b> and create one named <span class="kbd">Letterhead</span>.</li>
+            <li>Paste it here. Use your iCloud address as the email.</li>
+          </ol>
+        </div>
+        <div class="guide card soft hidden" id="guide-custom">
+          <div class="eyebrow">Any SMTP server</div>
+          <h3>What you need</h3>
+          <p>Your provider's outgoing (SMTP) server name, port, and the password it expects. Many providers need an app password instead of your normal one. Their help pages list these settings.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- RECIPIENTS -->
+    <section class="view" id="view-recipients">
+      <header class="vhead">
+        <div><h1>Recipients</h1><p class="lede">Import a spreadsheet or paste a list. Every column becomes a merge field.</p></div>
+        <div class="vhead-actions">
+          <button class="ghost" id="r-clear">Clear list</button>
+          <button class="secondary" id="r-paste-toggle">Paste a list</button>
+          <button class="primary" id="r-import">Import CSV</button>
+        </div>
+      </header>
+      <div class="paste card hidden" id="r-paste-card">
+        <textarea id="r-paste" spellcheck="false" placeholder="email,first_name,university&#10;ada@lab.edu,Ada,Stanford&#10;&#10;or one per line:&#10;Grace Hopper <grace@navy.mil>"></textarea>
+        <div class="actions"><small class="hint">Commas, tabs straight from Google Sheets, or one address per line all work. The first row is used as headers when it has no email in it.</small><span class="grow"></span><button class="ghost" id="r-paste-cancel">Cancel</button><button class="secondary" id="r-paste-append">Add to list</button><button class="primary" id="r-paste-replace">Replace list</button></div>
+      </div>
+      <div class="rsummary" id="r-summary"></div>
+      <div class="table-wrap card" id="r-table-wrap"><div id="r-table"></div></div>
+      <div class="empty" id="r-empty">
+        <svg viewBox="0 0 160 110" class="ill"><rect x="22" y="22" width="116" height="74" rx="6"/><path d="M22 28l58 40 58-40"/><path d="M40 12h80" stroke-dasharray="3 5"/><circle cx="128" cy="30" r="12" class="ill-accent"/></svg>
+        <h3>No one on the list yet</h3>
+        <p>Drop a CSV anywhere in this window, or use Import CSV. A column named <span class="kbd">email</span> is all it needs.</p>
+      </div>
+    </section>
+
+    <!-- LETTER -->
+    <section class="view" id="view-letter">
+      <header class="vhead">
+        <div><h1>The letter</h1><p class="lede">Write it once. Fields in double braces fill in for each person.</p></div>
+        <div class="vhead-actions"><button class="secondary" id="l-test">Send test to myself</button></div>
+      </header>
+      <div class="cols cols-letter">
+        <div class="editor card">
+          <label class="fld subject"><span>Subject</span><input id="l-subject" placeholder="Research assistant inquiry, {{first_name|Professor}}"></label>
+          <div class="chips" id="l-chips"></div>
+          <textarea id="l-body" spellcheck="true" placeholder="Dear Dr. {{last_name}},&#10;&#10;I read your recent work on ... "></textarea>
+          <div class="attach-row">
+            <div class="attach-list" id="l-attach-list"></div>
+            <button class="ghost sm" id="l-attach"><svg viewBox="0 0 20 20" class="ico"><path d="M13.5 6.5 8 12a1.8 1.8 0 0 0 2.5 2.5l6-6a3.5 3.5 0 0 0-5-5l-6.2 6.2a5.2 5.2 0 0 0 7.4 7.4l4.8-4.8"/></svg>Attach a file</button>
+          </div>
+          <small class="hint">Tip: <span class="kbd">{{university|your university}}</span> uses the words after the bar when that cell is empty.</small>
+        </div>
+        <div class="preview-col">
+          <div class="pv-nav">
+            <button class="icon-btn" id="pv-prev" aria-label="Previous recipient"><svg viewBox="0 0 20 20"><path d="M12 5l-5 5 5 5"/></svg></button>
+            <div class="pv-who" id="pv-who">Preview</div>
+            <button class="icon-btn" id="pv-next" aria-label="Next recipient"><svg viewBox="0 0 20 20"><path d="M8 5l5 5-5 5"/></svg></button>
+          </div>
+          <article class="letter" id="pv">
+            <div class="stamp" aria-hidden="true"><div class="stamp-in"><span id="pv-stamp-n">1</span></div></div>
+            <dl class="hdrs"><dt>From</dt><dd id="pv-from"></dd><dt>To</dt><dd id="pv-to"></dd><dt>Subject</dt><dd id="pv-subject" class="pv-subj"></dd></dl>
+            <div class="pv-body" id="pv-body"></div>
+            <div class="pv-attach" id="pv-attach"></div>
+          </article>
+          <div class="pv-warn" id="pv-warn"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DRAFTS -->
+    <section class="view" id="view-drafts">
+      <header class="vhead">
+        <div><h1>Drafts</h1><p class="lede">Send emails you already wrote in your mail app, exactly as they are, at your own pace.</p></div>
+        <div class="vhead-actions">
+          <button class="secondary" id="d-refresh"><svg viewBox="0 0 20 20" class="ico"><path d="M15.5 8A6 6 0 0 0 4.6 6.5M4.5 12a6 6 0 0 0 10.9 1.5"/><path d="M15.5 3.5V8H11M4.5 16.5V12H9"/></svg>Refresh</button>
+          <button class="primary" id="d-send" disabled>Send selected</button>
+        </div>
+      </header>
+      <div class="rsummary" id="d-summary"></div>
+      <div class="cols cols-drafts" id="d-main">
+        <div class="card dlist" id="d-list"></div>
+        <div class="preview-col">
+          <article class="letter dletter" id="d-pv"></article>
+        </div>
+      </div>
+      <div class="empty hidden" id="d-state"></div>
+    </section>
+
+    <!-- SEND -->
+    <section class="view" id="view-send">
+      <header class="vhead">
+        <div><h1 id="s-title">Ready to send</h1><p class="lede" id="s-lede">Pick a pace, check the list, then start.</p></div>
+        <div class="vhead-actions" id="s-run-actions">
+          <button class="ghost hidden" id="s-new">New send</button>
+          <button class="secondary hidden" id="s-export">Export results</button>
+          <button class="secondary hidden" id="s-retry">Retry failed</button>
+          <button class="secondary hidden" id="s-cancel">Cancel</button>
+          <button class="primary hidden" id="s-pause">Pause</button>
+        </div>
+      </header>
+
+      <div id="s-setup">
+        <div class="source-row"><span class="hint">What to send</span>
+          <div class="seg" id="s-source"><button data-source="merge">Mail merge letter</button><button data-source="drafts">Selected drafts</button></div>
+        </div>
+        <div class="modes">
+          <label class="mode card" data-mode="burst">
+            <input type="radio" name="mode" value="burst">
+            <div class="mode-ill"><svg viewBox="0 0 64 40"><rect x="4" y="8" width="20" height="14" rx="2"/><rect x="22" y="14" width="20" height="14" rx="2"/><rect x="40" y="20" width="20" height="14" rx="2"/></svg></div>
+            <div class="mode-t">All at once</div>
+            <div class="mode-d">Sends back to back over one connection until the list is done.</div>
+          </label>
+          <label class="mode card" data-mode="interval">
+            <input type="radio" name="mode" value="interval">
+            <div class="mode-ill"><svg viewBox="0 0 64 40"><rect x="2" y="13" width="15" height="11" rx="2"/><circle cx="21.5" cy="18.5" r="1"/><circle cx="25.5" cy="18.5" r="1"/><rect x="30" y="13" width="15" height="11" rx="2"/><circle cx="49.5" cy="18.5" r="1"/><circle cx="53.5" cy="18.5" r="1"/><rect x="58" y="13" width="5" height="11" rx="1.5" opacity=".5"/></svg></div>
+            <div class="mode-t">On an interval</div>
+            <div class="mode-d">
+              One every <input type="number" id="s-every" min="1" value="2" class="num"> <select id="s-unit"><option value="sec">seconds</option><option value="min" selected>minutes</option></select>
+              <div class="jit">Vary each gap by up to <input type="number" id="s-jitter" min="0" max="90" value="25" class="num"> %</div>
+            </div>
+          </label>
+        </div>
+        <div class="cols cols-send">
+          <div class="card checklist" id="s-checks"></div>
+          <div class="card soft summary-card">
+            <div class="eyebrow">At a glance</div>
+            <div class="glance" id="s-glance"></div>
+            <div class="cap-warn" id="s-capwarn"></div>
+            <div class="actions"><button class="secondary" id="s-test">Send test to myself</button><span class="grow"></span><button class="secondary" id="s-later">Schedule for later</button><button class="primary big" id="s-start">Start sending</button></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="s-run" class="hidden">
+        <div class="run-head card">
+          <div class="tally">
+            <div><b id="t-sent">0</b><span>sent</span></div>
+            <div><b id="t-failed">0</b><span>failed</span></div>
+            <div><b id="t-left">0</b><span>to go</span></div>
+          </div>
+          <div class="run-mid">
+            <div class="stamps" id="t-stamps"></div>
+            <div class="bar"><i id="t-bar"></i></div>
+            <div class="run-status" id="t-status"></div>
+          </div>
+          <div class="countdown" id="t-count"><span class="cd-label">Next email</span><b id="t-count-v">0:00</b></div>
+        </div>
+        <div class="cols cols-run">
+          <div class="card table-wrap"><div id="t-table"></div></div>
+          <div class="card log"><div class="log-h">Activity</div><div class="log-b" id="t-log"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SCHEDULE -->
+    <section class="view" id="view-schedule">
+      <header class="vhead">
+        <div><h1>Schedule</h1><p class="lede">Line up batches for later. Each one keeps its own list, letter or drafts, start time and pace.</p></div>
+        <div class="vhead-actions"><button class="primary" id="b-new">New batch</button></div>
+      </header>
+      <div class="open-note" id="b-opennote"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><path d="M10 6.2v4.2l2.6 1.6"/></svg><div><b>Letterhead needs to be open to send on schedule.</b> Closing the window is fine, it keeps running in the background. If you quit, or your Mac is asleep at a start time, Letterhead asks you what to do next time instead of sending on its own.</div></div>
+      <div class="cols cols-sched">
+        <div><div id="b-list"></div></div>
+        <div class="side-stack">
+          <div class="card soft guide awake-card">
+            <div class="eyebrow">While you are away</div>
+            <h3>Stay awake for batches</h3>
+            <div class="toggles flat">
+              <label class="tgl"><input type="checkbox" id="set-keepAwake"><i></i><span><b>Keep Mac awake while batches wait</b><small>From the moment a batch is scheduled until the queue is done. A send in progress always keeps it awake.</small></span></label>
+              <label class="tgl" id="lid-row"><input type="checkbox" id="set-keepAwakeLid"><i></i><span><b>Even with the lid closed</b><small>Asks for your Mac password once, then turns sleep back on by itself when the queue finishes or Letterhead quits.</small></span></label>
+              <div class="lead-row" id="lead-row"><span class="hint">Ask for the password</span><div class="seg sm-seg" id="set-lidLead"><button data-lead="0">When I schedule</button><button data-lead="15">15 min before</button></div></div>
+              <label class="tgl"><input type="checkbox" id="set-openAtLogin"><i></i><span><b>Open at login</b><small>So schedules survive a restart. Opens quietly in the background.</small></span></label>
+            </div>
+            <div class="lid-state hidden" id="lid-state"></div>
+            <p class="fine warm" id="lid-warm">With the lid closed, keep your Mac plugged in and out of a bag or sleeve. It keeps running and can get warm.</p>
+            <div class="actions"><span class="grow"></span><button class="ghost sm" id="pw-restore">Restore normal sleep</button></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="view" id="view-settings">
+      <header class="vhead"><div><h1>Settings</h1><p class="lede">Limits that keep your account in good standing.</p></div></header>
+      <div class="cols cols-account">
+        <div class="card form-card">
+          <label class="fld"><span>Daily cap</span>
+            <div class="row"><input id="set-cap" type="number" min="0" class="w120"><button class="ghost sm" data-cap="500">Gmail, 500</button><button class="ghost sm" data-cap="2000">Google Workspace, 2,000</button></div>
+            <small class="hint">Letterhead pauses when this many emails have gone out in the last 24 hours. Set 0 for no cap.</small>
+          </label>
+          <div class="usage-box" id="set-usage"></div>
+          <div class="toggles">
+            <div class="nav-label" style="padding:4px 0 0">When sending drafts</div>
+            <label class="tgl"><input type="checkbox" id="set-delDraft"><i></i><span><b>Remove each draft after it sends</b><small>So your Drafts folder only holds what is still waiting.</small></span></label>
+            <label class="tgl"><input type="checkbox" id="set-saveSent"><i></i><span><b>Save a copy to Sent</b><small>For servers other than Gmail. Gmail files mail sent this way in Sent by itself.</small></span></label>
+          </div>
+          <div class="actions"><button class="ghost" id="set-reset">Reset counter</button><span class="grow"></span><button class="primary" id="set-save">Save settings</button></div>
+        </div>
+        <div class="side-stack">
+        <div class="card update-card">
+          <div class="eyebrow">Updates</div>
+          <div class="upd-row"><div><h3 id="u-version">Letterhead</h3><div class="hint" id="u-status">Checks GitHub for a new version when it opens and every few hours.</div></div><button class="secondary sm" id="u-check">Check now</button></div>
+          <div class="bar thin hidden" id="u-bar"><i id="u-fill"></i></div>
+          <div class="toggles flat">
+            <label class="tgl"><input type="checkbox" id="set-autoUpdate"><i></i><span><b>Download updates automatically</b><small>Nothing installs until you restart or quit.</small></span></label>
+            <label class="tgl"><input type="checkbox" id="set-installOnQuit"><i></i><span><b>Install a downloaded update when I quit</b><small>Next time you open Letterhead, it is the new version.</small></span></label>
+          </div>
+        </div>
+        <div class="card soft guide">
+          <div class="eyebrow">Why a cap</div>
+          <h3>Sending limits</h3>
+          <p>Google's help pages list a limit of 500 emails a day for personal Gmail accounts and 2,000 for Workspace accounts, counted over a rolling 24 hours. Going past it can block sending for up to a day.</p>
+          <p class="fine">A draft addressed to three people counts as three here, to stay on the safe side.</p>
+          <p class="fine">This counter only sees mail sent from Letterhead. Mail you send from Gmail itself counts toward Google's limit too, so leave some room.</p>
+          <p class="fine">For cold outreach, an interval of a minute or more tends to read as ordinary sending and gives you time to catch a typo before it reaches everyone.</p>
+          <p class="fine">Scheduled batches share this cap. If a batch reaches it, that batch pauses and picks up again by itself once there is room.</p>
+        </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+<div class="veil hidden" id="b-veil">
+  <form class="sheet" id="b-sheet" autocomplete="off">
+    <div class="sheet-h"><div class="eyebrow" id="be-eyebrow">New batch</div><h2 id="be-title">Schedule a batch</h2></div>
+    <label class="fld"><span>Name</span><input id="be-name" placeholder="Stanford neuroscience labs" maxlength="80"></label>
+    <div class="fld"><span>What to send</span>
+      <div class="seg" id="be-kind"><button type="button" data-kind="merge">Mail merge letter</button><button type="button" data-kind="drafts">Selected drafts</button></div>
+      <div class="be-what" id="be-what"></div>
+    </div>
+    <div class="fld"><span>Start</span>
+      <div class="row when-row"><input type="date" id="be-date"><input type="time" id="be-time" step="60"><select id="be-tz"></select></div>
+      <div class="qchips" id="be-chips"></div>
+      <small class="hint" id="be-when"></small>
+    </div>
+    <div class="fld"><span>Pace</span>
+      <div class="row pace-row"><div class="seg" id="be-mode"><button type="button" data-mode="burst">All at once</button><button type="button" data-mode="interval">On an interval</button></div>
+      <span class="pace-int" id="be-int">one every <input type="number" id="be-every" min="1" class="num"> <select id="be-unit" class="unit"><option value="sec">seconds</option><option value="min">minutes</option></select>, vary by <input type="number" id="be-jitter" min="0" max="90" class="num"> %</span></div>
+      <small class="hint" id="be-est"></small>
+    </div>
+    <div class="sheet-err hidden" id="be-err"></div>
+    <div class="actions sheet-f"><button type="button" class="ghost" id="be-cancel">Cancel</button><span class="grow"></span><button type="submit" class="primary" id="be-save">Schedule batch</button></div>
+  </form>
+</div>
+<div class="veil hidden" id="m-veil">
+  <div class="sheet missed-sheet">
+    <div class="sheet-h"><div class="eyebrow">While Letterhead was away</div><h2 id="m-title">A batch missed its time</h2><p class="lede">Nothing was sent on its own. Choose what to do with each one.</p></div>
+    <div id="m-list"></div>
+    <div class="actions sheet-f"><span class="grow"></span><button class="ghost" id="m-later">Decide later</button></div>
+  </div>
+</div>
+<div class="toasts" id="toasts"></div>
+<div class="dropveil" id="dropveil"><div>Drop a CSV to import recipients</div></div>
+<script src="vendor/papaparse.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

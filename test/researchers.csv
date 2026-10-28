@@ -1,0 +1,11 @@
+First Name,Last Name,Email,University,Research Area,Paper
+Maya,Okafor,maya.okafor@stanford.example,Stanford,computational neuroscience,Decoding inner speech from motor cortex
+Daniel,Reyes,dreyes@mit.example,MIT,brain computer interfaces,Low latency neural decoders
+Priya,Raman,praman@ucsd.example,UC San Diego,speech prosthetics,Restoring speech after ALS
+Tomas,Lindqvist,tlind@uw.example,University of Washington,neural engineering,Closed loop stimulation in songbirds
+Hana,Sato,hsato@cmu.example,Carnegie Mellon,machine learning for EEG,Self supervised EEG representations
+Leah,Goldberg,lgoldberg@nyu.example,NYU,,Attention and working memory
+Kwame,Mensah,kmensah@duke.example,Duke,motor control,Cortical dynamics of reaching
+Bounce,Test,bounce@nowhere.example,Nowhere,testing,A message the server will reject
+not-an-email,Row,not-an-email,Nowhere,testing,Invalid address row
+Maya,Okafor,Maya.Okafor@stanford.example,Stanford,duplicate,Duplicate row
