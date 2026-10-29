@@ -9,6 +9,7 @@ const STAGE = path.join(__dirname, 'stage');
   fs.mkdirSync(path.join(STAGE, 'src'), { recursive: true });
   await esbuild.build({ entryPoints: ['src/main.js'], bundle: true, platform: 'node', target: 'node20', external: ['electron'], minify: true, outfile: path.join(STAGE, 'src/main.js'), logLevel: 'warning' });
   fs.copyFileSync('src/preload.js', path.join(STAGE, 'src/preload.js'));
+  fs.copyFileSync(require.resolve('sql.js/dist/sql-wasm.wasm'), path.join(STAGE, 'src/sql-wasm.wasm'));
   fs.cpSync('src/renderer', path.join(STAGE, 'src/renderer'), { recursive: true });
   const pkg = require('./package.json');
   fs.writeFileSync(path.join(STAGE, 'package.json'), JSON.stringify({ name: pkg.name, productName: pkg.productName, version: pkg.version, description: pkg.description, author: pkg.author, main: 'src/main.js' }, null, 2));

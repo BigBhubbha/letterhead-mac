@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: https: http:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self'; frame-src 'self' about: data:; object-src 'none'">
 <title>Letterhead</title>
 <link rel="stylesheet" href="styles.css">
 </head>
@@ -12,9 +12,14 @@
     <div class="drag sidebar-top"></div>
     <div class="brand">
       <svg class="seal" viewBox="0 0 40 40" aria-hidden="true"><path d="M20 3.5c2.2 0 3 1.9 4.9 2.6 1.9.7 3.8-.3 5.4 1 1.6 1.3 1.1 3.4 2.1 5.1 1 1.7 3.1 2.3 3.4 4.3.3 2-1.5 3.2-1.8 5.2-.3 2 1 3.7.1 5.5-.9 1.8-3.1 1.8-4.6 3.1-1.5 1.3-1.7 3.5-3.6 4.2-1.9.7-3.5-.8-5.5-.8s-3.6 1.5-5.5.8c-1.9-.7-2.1-2.9-3.6-4.2-1.5-1.3-3.7-1.3-4.6-3.1-.9-1.8.4-3.5.1-5.5-.3-2-2.1-3.2-1.8-5.2.3-2 2.4-2.6 3.4-4.3 1-1.7.5-3.8 2.1-5.1 1.6-1.3 3.5-.3 5.4-1C17 5.4 17.8 3.5 20 3.5z" fill="var(--accent)"/><circle cx="20" cy="20.5" r="9.2" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="1"/><text x="20" y="25.2" text-anchor="middle" font-family="Fraunces" font-style="italic" font-size="14" fill="#fff">L</text></svg>
-      <div><div class="brand-name">Letterhead</div><div class="brand-sub">Personal mail merge</div></div>
+      <div><div class="brand-name">Letterhead</div><div class="brand-sub">Mail, outreach, replies</div></div>
     </div>
-    <nav class="nav">
+    <button class="compose-btn" id="compose-btn"><svg viewBox="0 0 20 20"><path d="M13.6 3.6l2.8 2.8L7.8 15H5v-2.8z"/><path d="M11.8 5.4l2.8 2.8"/></svg><span>Compose</span></button>
+    <nav class="nav" id="nav">
+      <div class="nav-label">Mail</div>
+      <div id="nav-folders"></div>
+      <button class="nav-item" data-tab="assist"><svg viewBox="0 0 20 20"><path d="M10 3.2l1.5 3.7 3.7 1.5-3.7 1.5L10 13.6l-1.5-3.7-3.7-1.5 3.7-1.5z"/><path d="M15 13.2l.7 1.6 1.6.7-1.6.7-.7 1.6-.7-1.6-1.6-.7 1.6-.7z"/></svg><span>Suggested replies</span><em class="badge" id="nav-assist-count"></em></button>
+      <div id="nav-labels"></div>
       <div class="nav-label">Outreach</div>
       <button class="nav-item" data-tab="account"><svg viewBox="0 0 20 20"><circle cx="10" cy="7" r="3.2"/><path d="M3.8 16.5c.9-3 3.3-4.6 6.2-4.6s5.3 1.6 6.2 4.6"/></svg><span>Account</span><i class="dot" id="nav-acct-dot"></i></button>
       <button class="nav-item" data-tab="recipients"><svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2"/><path d="M3 8h14M7.5 8v8"/></svg><span>Recipients</span><em class="badge" id="nav-rcpt-count"></em></button>
@@ -23,6 +28,7 @@
       <button class="nav-item" data-tab="send"><svg viewBox="0 0 20 20"><path d="M3 9.6 16.8 3.4 13.6 16.6 9.6 11.2z"/><path d="M9.6 11.2 16.8 3.4"/></svg><span>Send</span><i class="pulse" id="nav-send-pulse"></i></button>
       <button class="nav-item" data-tab="schedule"><svg viewBox="0 0 20 20"><rect x="3.5" y="4.5" width="13" height="12" rx="2"/><path d="M3.5 8.5h13M7 3v3M13 3v3"/><path d="M10 11v2.2l1.5 1"/></svg><span>Schedule</span><em class="badge" id="nav-sched-count"></em></button>
       <div class="nav-label">App</div>
+      <button class="nav-item" data-tab="ai"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="6.5"/><path d="M7.2 11.6c.7 1 1.7 1.5 2.8 1.5s2.1-.5 2.8-1.5M7.6 8h.01M12.4 8h.01"/></svg><span>Assistant</span><i class="dot" id="nav-ai-dot"></i></button>
       <button class="nav-item" data-tab="settings"><svg viewBox="0 0 20 20"><path d="M4 6h7M14 6h2M4 14h2M9 14h7"/><circle cx="12.5" cy="6" r="1.6"/><circle cx="7.5" cy="14" r="1.6"/></svg><span>Settings</span></button>
     </nav>
     <div class="sidebar-foot">
@@ -38,6 +44,84 @@
   <main class="main">
     <div class="drag main-top"></div>
     <div class="update-bar hidden" id="upd-bar"><span class="upd-ico"><svg viewBox="0 0 16 16"><path d="M8 2.5v7.5M4.8 6.8 8 10l3.2-3.2M3 13h10"/></svg></span><span class="upd-text" id="upd-text"></span><span class="grow"></span><button class="ghost sm" id="upd-later">Later</button><button class="primary sm" id="upd-go">Restart to update</button></div>
+
+    <!-- MAIL -->
+    <section class="view mailview" id="view-mail">
+      <div class="mail-cols">
+        <div class="mlist-col">
+          <div class="mlist-head">
+            <div class="search"><svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.3"/><path d="m10.2 10.2 3.3 3.3"/></svg><input id="m-search" placeholder="Search mail" spellcheck="false"><kbd>/</kbd></div>
+            <div class="mlist-title"><h2 id="m-title">Inbox</h2><span class="m-count" id="m-count"></span><span class="grow"></span><span class="m-live" id="m-live"></span><button class="icon-btn" id="m-refresh" title="Check for new mail"><svg viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 3v2.6h-2.6"/></svg></button></div>
+            <div class="bulkbar hidden" id="m-bulk"><span id="m-bulk-n"></span><span class="grow"></span><button class="ghost sm" data-bulk="archive">Archive</button><button class="ghost sm" data-bulk="read">Read</button><button class="ghost sm" data-bulk="unread">Unread</button><button class="ghost sm" data-bulk="trash">Delete</button><button class="ghost sm" data-bulk="clear">Clear</button></div>
+          </div>
+          <div class="m-banner hidden" id="m-banner"></div>
+          <div class="mlist" id="m-list" tabindex="-1"></div>
+        </div>
+        <div class="reader-col" id="m-reader"></div>
+      </div>
+    </section>
+
+    <!-- SUGGESTED REPLIES -->
+    <section class="view" id="view-assist">
+      <header class="vhead"><div><h1>Suggested replies</h1><p class="lede">Replies written in your voice for mail that looks like it needs an answer. Nothing sends until you press Send, unless an automatic reply rule you made says so.</p></div>
+        <div class="vhead-actions"><button class="secondary" id="as-refresh">Refresh</button></div></header>
+      <div id="as-body"></div>
+    </section>
+
+    <!-- ASSISTANT SETTINGS -->
+    <section class="view" id="view-ai">
+      <header class="vhead"><div><h1>Reply assistant</h1><p class="lede">Learns how you write from your Sent mail, then drafts replies that sound like you. Off until you turn it on.</p></div></header>
+      <div class="ai-grid">
+        <div class="card form-card">
+          <div class="eyebrow">Step 1</div><h3>Turn it on and add a key</h3>
+          <label class="tgl big"><input type="checkbox" id="ai-enabled"><i></i><span><b>Use the reply assistant</b><small>Drafts replies for you to check. It never sends by itself unless you also set up automatic replies below.</small></span></label>
+          <div class="privacy" id="ai-privacy">
+            <b>What leaves your Mac</b>
+            <p>To write a reply, Letterhead sends the email you are replying to (and the earlier messages in that conversation), a few of your past replies that are similar, and your style notes to the AI provider you choose, using your own API key. Building your style notes sends a sample of up to 45 of your sent emails, once.</p>
+            <p>Your Sent mail index, the style profile and the reply drafts are stored only on this Mac. Your API key is encrypted with your macOS Keychain.</p>
+            <p class="fine" id="ai-terms">Google's Gemini API terms say that with a free key, Google uses what you send to improve its products, and human reviewers may read it after it is disconnected from your account. With billing turned on, it does not. For anything private, write that reply yourself.</p>
+          </div>
+          <div class="grid2">
+            <label class="fld"><span>Provider</span><select id="ai-provider"><option value="gemini">Google Gemini (free key)</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option></select></label>
+            <label class="fld"><span>API key</span><div class="pw"><input id="ai-key" type="password" placeholder="Paste your key" spellcheck="false" autocomplete="off"><button class="ghost sm" id="ai-key-save" type="button">Save</button></div></label>
+          </div>
+          <small class="hint" id="ai-key-status"></small>
+          <div class="keyhelp" id="ai-keyhelp">
+            <b>Getting a free Gemini key, about a minute</b>
+            <ol><li>Open <a href="#" data-ext="https://aistudio.google.com/app/apikey">aistudio.google.com/app/apikey</a> and sign in with your Google account.</li><li>Click <i>Create API key</i>, then copy it.</li><li>Paste it above and press Save, then Test.</li></ol>
+          </div>
+          <div class="actions"><button class="secondary" id="ai-test">Test the key</button><span class="hint grow" id="ai-test-out"></span><button class="ghost sm" id="ai-key-remove">Remove key</button></div>
+        </div>
+
+        <div class="card form-card">
+          <div class="eyebrow">Step 2</div><h3>Learn your style</h3>
+          <p class="hint">Letterhead reads your newest sent emails, keeps the part you wrote (not the quoted email below it), and measures your greetings, sign-offs, length and favorite phrases on this Mac. Then it asks the AI to describe your tone from a small sample.</p>
+          <div class="row"><label class="fld inline"><span>Read my last</span><select id="st-window"><option>500</option><option selected>1000</option><option>1500</option><option>2000</option></select><span>sent emails</span></label><span class="grow"></span><button class="primary" id="st-run">Build my style profile</button></div>
+          <div class="bar thin hidden" id="st-bar"><i id="st-fill"></i></div>
+          <small class="hint" id="st-status"></small>
+          <div class="profile" id="st-profile"></div>
+          <label class="fld"><span>About you</span><textarea id="st-about" rows="3" placeholder="Junior at Lincoln High School. Interested in brain computer interfaces. Free after 3:30 PM Central on weekdays."></textarea><small class="hint">Facts the assistant may use in replies. It writes a [placeholder] for anything it does not know instead of guessing.</small></label>
+          <div class="actions"><button class="ghost sm" id="st-clear">Delete style profile</button><span class="grow"></span><button class="secondary" id="st-save">Save notes</button></div>
+        </div>
+
+        <div class="card form-card">
+          <div class="eyebrow">Drafts</div><h3>Suggested replies</h3>
+          <label class="tgl"><input type="checkbox" id="ai-autoDraft"><i></i><span><b>Draft a reply when new mail arrives</b><small>Only for mail that looks personal. Newsletters, mailing lists, no-reply senders and automated mail are skipped.</small></span></label>
+          <label class="fld inline"><span>At most</span><input type="number" id="ai-autoDraftDaily" min="0" max="500" class="num"><span>background drafts a day</span></label>
+        </div>
+
+        <div class="card form-card">
+          <div class="eyebrow">Optional, off by default</div><h3>Automatic replies</h3>
+          <label class="tgl big"><input type="checkbox" id="ar-enabled"><i></i><span><b>Send automatic replies for my rules</b><small>Only for senders or labels you list. Each reply waits in Suggested replies for the review time you pick, so you can stop or edit it.</small></span></label>
+          <div class="hardrules"><b>Never replies to</b> no-reply addresses, mailing lists and newsletters, automated or bulk mail, out-of-office messages, emails sent to more than 5 people, mail older than a day, or the same person twice in 24 hours. It also stops if you reply yourself first.</div>
+          <label class="fld inline"><span>At most</span><input type="number" id="ar-limit" min="1" max="100" class="num"><span>automatic replies a day</span></label>
+          <div id="ar-rules"></div>
+          <div class="actions"><button class="secondary sm" id="ar-add">Add a rule</button><span class="grow"></span></div>
+          <div class="nav-label" style="padding:10px 0 4px">Log</div>
+          <div class="arlog" id="ar-log"></div>
+        </div>
+      </div>
+    </section>
 
     <!-- ACCOUNT -->
     <section class="view" id="view-account">
@@ -288,7 +372,7 @@
 
     <!-- SETTINGS -->
     <section class="view" id="view-settings">
-      <header class="vhead"><div><h1>Settings</h1><p class="lede">Limits that keep your account in good standing.</p></div></header>
+      <header class="vhead"><div><h1>Settings</h1><p class="lede">Mail, sending limits and updates.</p></div></header>
       <div class="cols cols-account">
         <div class="card form-card">
           <label class="fld"><span>Daily cap</span>
@@ -301,6 +385,14 @@
             <label class="tgl"><input type="checkbox" id="set-delDraft"><i></i><span><b>Remove each draft after it sends</b><small>So your Drafts folder only holds what is still waiting.</small></span></label>
             <label class="tgl"><input type="checkbox" id="set-saveSent"><i></i><span><b>Save a copy to Sent</b><small>For servers other than Gmail. Gmail files mail sent this way in Sent by itself.</small></span></label>
           </div>
+          <div class="toggles">
+            <div class="nav-label" style="padding:4px 0 0">Mail</div>
+            <label class="tgl"><input type="checkbox" id="set-mailEnabled"><i></i><span><b>Show my inbox in Letterhead</b><small>Keeps a live connection to your mailbox and a local copy of recent mail on this Mac for fast, offline reading.</small></span></label>
+            <label class="tgl"><input type="checkbox" id="set-notifyMail"><i></i><span><b>Notify me about new mail</b><small>Only for personal mail, not newsletters or automated mail.</small></span></label>
+            <label class="tgl"><input type="checkbox" id="set-dockBadge"><i></i><span><b>Unread count on the Dock icon</b><small>Counts unread conversations in your Inbox.</small></span></label>
+            <label class="tgl"><input type="checkbox" id="set-showImages"><i></i><span><b>Always show images</b><small>Off is safer: remote images can tell a sender you opened the email. You can show them for one email at a time.</small></span></label>
+          </div>
+          <label class="fld"><span>Signature</span><div class="sig-edit" id="set-signature" contenteditable="true" spellcheck="true"></div><small class="hint">Added to new emails and replies you write in Letterhead, and to assistant replies.</small></label>
           <div class="actions"><button class="ghost" id="set-reset">Reset counter</button><span class="grow"></span><button class="primary" id="set-save">Save settings</button></div>
         </div>
         <div class="side-stack">
@@ -327,6 +419,8 @@
     </section>
   </main>
 </div>
+<div class="composer hidden" id="composer"></div>
+<div class="veil hidden" id="k-veil"><div class="sheet keys" id="k-sheet"></div></div>
 <div class="veil hidden" id="b-veil">
   <form class="sheet" id="b-sheet" autocomplete="off">
     <div class="sheet-h"><div class="eyebrow" id="be-eyebrow">New batch</div><h2 id="be-title">Schedule a batch</h2></div>
@@ -360,5 +454,7 @@
 <div class="dropveil" id="dropveil"><div>Drop a CSV to import recipients</div></div>
 <script src="vendor/papaparse.min.js"></script>
 <script src="app.js"></script>
+<script src="mail.js"></script>
+<script src="assist.js"></script>
 </body>
 </html>

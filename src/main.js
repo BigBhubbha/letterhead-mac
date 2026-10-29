@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const engine = require('./engine');
 const drafts = require('./drafts');
+const wireMail = require('./mailwire');
 
 const isMac = process.platform === 'darwin';
 let win = null;
@@ -60,7 +61,7 @@ const usage = {
 
 
 const FEED_URL = process.env.LETTERHEAD_UPDATE_FEED || 'https://github.com/BigBhubbha/letterhead-mac/releases/latest/download/latest.json';
-let scheduler = null, updater = null, power = null, quitting = false;
+let scheduler = null, updater = null, power = null, quitting = false, wired = null;
 
 function send(ch, payload) { if (win && !win.isDestroyed()) win.webContents.send(ch, payload); }
 const settings = () => readJson('settings.json', {}) || {};
@@ -72,7 +73,7 @@ function notify(title, body) {
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 1240, height: 820, minWidth: 980, minHeight: 640,
+    width: 1320, height: 860, minWidth: 1040, minHeight: 660,
     title: 'Letterhead',
     titleBarStyle: isMac ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 18, y: 20 },
@@ -84,8 +85,8 @@ function createWindow() {
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.once('ready-to-show', () => { if (!app.getLoginItemSettings().wasOpenedAsHidden) win.show(); });
-  if (process.env.LETTERHEAD_HARNESS) require(process.env.LETTERHEAD_HARNESS)(win, { nativeTheme, getScheduler: () => scheduler, getUpdater: () => updater, getPower: () => power });
-  win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' }; });
+  if (process.env.LETTERHEAD_HARNESS) require(process.env.LETTERHEAD_HARNESS)(win, { nativeTheme, getScheduler: () => scheduler, getUpdater: () => updater, getPower: () => power, getWired: () => wired });
+  win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/i.test(url)) shell.openExternal(url); else if (/^mailto:/i.test(url)) send('menu', { action: 'compose', mailto: url }); return { action: 'deny' }; });
   win.webContents.on('will-navigate', (e, url) => { if (!url.startsWith('file:')) { e.preventDefault(); shell.openExternal(url); } });
   // On a Mac, closing the window keeps Letterhead running in the background so schedules keep working.
   win.on('close', e => {
@@ -100,7 +101,8 @@ function buildMenu() {
   const tpl = [
     ...(isMac ? [{ label: 'Letterhead', submenu: [{ role: 'about' }, checkUpdates, { type: 'separator' }, { label: 'Settings…', accelerator: 'Cmd+,', click: go('settings') }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] }] : []),
     { label: 'File', submenu: [
-      { label: 'New Batch…', accelerator: 'CmdOrCtrl+N', click: () => { showWindow(); send('menu', { action: 'newBatch' }); } },
+      { label: 'New Email', accelerator: 'CmdOrCtrl+N', click: () => { showWindow(); send('menu', { action: 'compose' }); } },
+      { label: 'New Batch…', accelerator: 'CmdOrCtrl+Shift+N', click: () => { showWindow(); send('menu', { action: 'newBatch' }); } },
       { type: 'separator' },
       { label: 'Import Recipients CSV…', accelerator: 'CmdOrCtrl+O', click: () => send('menu', { action: 'import' }) },
       { label: 'Attach File…', accelerator: 'CmdOrCtrl+Shift+A', click: () => send('menu', { action: 'attach' }) },
@@ -109,6 +111,9 @@ function buildMenu() {
       { type: 'separator' }, isMac ? { role: 'close' } : { role: 'quit' }] },
     { role: 'editMenu' },
     { label: 'View', submenu: [
+      { label: 'Mail', accelerator: 'CmdOrCtrl+0', click: go('mail') },
+      { label: 'Suggested Replies', accelerator: 'CmdOrCtrl+Shift+R', click: go('assist') },
+      { type: 'separator' },
       { label: 'Account', accelerator: 'CmdOrCtrl+1', click: go('account') },
       { label: 'Recipients', accelerator: 'CmdOrCtrl+2', click: go('recipients') },
       { label: 'Letter', accelerator: 'CmdOrCtrl+3', click: go('letter') },
@@ -149,14 +154,14 @@ function refreshPower() { clearTimeout(powerT); powerT = setTimeout(() => power 
 
 // ---------- IPC ----------
 ipcMain.handle('account:get', () => loadAccount(false));
-ipcMain.handle('account:save', (e, a) => saveAccount(a));
-ipcMain.handle('account:clear', () => { try { fs.unlinkSync(file('account.json')); } catch (e) {} return null; });
+ipcMain.handle('account:save', (e, a) => { const r = saveAccount(a); if (wired) wired.onAccount(); return r; });
+ipcMain.handle('account:clear', () => { try { fs.unlinkSync(file('account.json')); } catch (e) {} if (wired) wired.mail.stop().catch(() => {}); return null; });
 ipcMain.handle('account:verify', (e, a) => engine.verifyAccount(accountForSend(a)));
 ipcMain.handle('draft:get', () => readJson('draft.json', null));
 ipcMain.handle('draft:save', (e, d) => { writeJson('draft.json', d); return true; });
 ipcMain.handle('settings:get', () => readJson('settings.json', null));
 ipcMain.handle('settings:save', (e, s) => {
-  writeJson('settings.json', { ...settings(), ...s }); refreshPower();
+  writeJson('settings.json', { ...settings(), ...s }); refreshPower(); if (wired) wired.onSettings(s);
   if (updater && 'autoUpdate' in s) { updater.stop(); if (s.autoUpdate && (app.isPackaged || process.env.LETTERHEAD_UPDATE_FEED)) updater.start(); }
   return true;
 });
@@ -290,6 +295,10 @@ app.whenReady().then(async () => {
   updater.on('ready', ({ version }) => notify('Letterhead update ready', `Version ${version} is downloaded. Restart Letterhead to use it.`));
   if (app.isPackaged || process.env.LETTERHEAD_UPDATE_FEED) { if (setting('autoUpdate', true)) updater.start(); }
 
+  try {
+    wired = await wireMail({ app, ipcMain, dialog, shell, safeStorage, Notification, send, settings, setting, saveSettings: p => writeJson('settings.json', { ...settings(), ...p }),
+      accountForSend: () => accountForSend(), usage, getDailyCap: () => Number(setting('cap', 500)) || 0, file, readJson, writeJson, showWindow, getWin: () => win });
+  } catch (e) { console.error('mail wiring failed', e); }
   createWindow();
   if (missedAtLaunch.length) win.webContents.once('did-finish-load', () => setTimeout(() => send('batches:missed', missedAtLaunch), 600));
   powerMonitor.on('resume', () => scheduler.tick());
@@ -310,5 +319,5 @@ app.on('before-quit', e => {
   // install a downloaded update on the way out, without reopening
   if (updater && updater.state.status === 'ready' && setting('installOnQuit', true)) { try { updater.install({ relaunch: false }); } catch (er) {} }
 });
-app.on('will-quit', () => { if (scheduler) { scheduler.saveNow(); scheduler.stop(); } if (power) power.shutdown(); });
+app.on('will-quit', () => { if (wired) { wired.assistant.stop(); try { wired.db.flush(); } catch (e) {} wired.mail.stop().catch(() => {}); } if (scheduler) { scheduler.saveNow(); scheduler.stop(); } if (power) power.shutdown(); });
 app.on('window-all-closed', () => { if (!isMac) app.quit(); });

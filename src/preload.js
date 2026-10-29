@@ -27,5 +27,19 @@ contextBridge.exposeInMainWorld('lh', {
   app: { info: () => inv('app:info'), setOpenAtLogin: on => inv('app:openAtLogin', on) },
   update: { state: () => inv('update:state'), check: () => inv('update:check'), install: () => inv('update:install') },
   power: { status: () => inv('power:status'), restore: () => inv('power:restore') },
+  mail: {
+    status: () => inv('mail:status'), restart: () => inv('mail:restart'), folders: () => inv('mail:folders'), threads: (f, o) => inv('mail:threads', f, o),
+    thread: k => inv('mail:thread', k), body: (f, u) => inv('mail:body', f, u), sync: f => inv('mail:sync', f), more: f => inv('mail:more', f),
+    action: a => inv('mail:action', a), search: q => inv('mail:search', q), contacts: q => inv('mail:contacts', q), select: f => inv('mail:select', f),
+    attachment: (f, u, i, how) => inv('mail:attachment', f, u, i, how), send: d => inv('mail:send', d), saveDraft: d => inv('mail:saveDraft', d),
+    deleteDraft: d => inv('mail:deleteDraft', d), openLink: u => inv('mail:openLink', u),
+  },
+  ai: { status: () => inv('ai:status'), setKey: (p, k) => inv('ai:setKey', p, k), test: () => inv('ai:test') },
+  style: { index: n => inv('style:index', n), progress: () => inv('style:progress'), profile: () => inv('style:profile'), saveProfile: p => inv('style:saveProfile', p), clear: () => inv('style:clear') },
+  assist: {
+    draft: (id, o) => inv('assist:draft', id, o), list: () => inv('assist:list'), candidates: () => inv('assist:candidates'), suggestion: id => inv('assist:suggestion', id),
+    setDraft: (k, t) => inv('assist:setDraft', k, t), dismiss: k => inv('assist:dismiss', k), hold: k => inv('assist:hold', k), sendNow: k => inv('assist:sendNow', k),
+    autolog: () => inv('assist:autolog'), queueBacklog: ids => inv('assist:queueBacklog', ids),
+  },
   on: (ch, fn) => { const h = (e, d) => fn(d); ipcRenderer.on(ch, h); return () => ipcRenderer.removeListener(ch, h); },
 });

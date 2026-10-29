@@ -47,6 +47,7 @@ function go(tab) {
   if (tab === 'drafts') { if (S.drafts.stale && !S.drafts.loading) loadDrafts(); else renderDrafts(); }
   if (tab === 'settings') renderSettings();
   if (tab === 'schedule') renderSchedule();
+  if (window.LH2) LH2.onTab(tab);
 }
 $$('.nav-item').forEach(b => b.addEventListener('click', () => go(b.dataset.tab)));
 document.addEventListener('click', e => { const a = e.target.closest('[data-ext]'); if (a) { e.preventDefault(); lh.openExternal(a.dataset.ext); } });
@@ -995,7 +996,7 @@ $('#set-installOnQuit').addEventListener('change', e => saveSetting('installOnQu
 /* ---------------- menu ---------------- */
 lh.on('menu', m => {
   if (m.tab) return go(m.tab);
-  ({ import: importCsv, attach: () => { go('letter'); attach(); }, export: exportCsv, test: sendTest, toggle: togglePause, retry, newBatch: () => { go('schedule'); openEditor(); } }[m.action] || (() => {}))();
+  ({ import: importCsv, attach: () => { go('letter'); attach(); }, export: exportCsv, test: sendTest, toggle: togglePause, retry, newBatch: () => { go('schedule'); openEditor(); }, compose: () => window.LH2 && LH2.compose(m.mailto ? { mailto: m.mailto } : {}) }[m.action] || (() => {}))();
 });
 
 /* ---------------- boot ---------------- */
@@ -1013,7 +1014,7 @@ lh.on('menu', m => {
   S.run = await lh.campaign.snapshot();
   if (S.run && S.run.source) S.runSource = S.run.source;
   fillAccount(S.account); renderAcctChip(); renderRecipients(); renderNavCount(); await refreshUsage();
-  const start = new URLSearchParams(location.search).get('tab') || (S.account && S.account.hasPassword ? (S.recipients.length ? 'letter' : 'recipients') : 'account');
+  const start = new URLSearchParams(location.search).get('tab') || (S.account && S.account.hasPassword ? (S.settings.mailEnabled === false ? (S.recipients.length ? 'letter' : 'recipients') : 'mail') : 'account');
   go(start);
   renderNavSched(); renderAwake(); renderUpdate();
   document.body.dataset.ready = '1';

@@ -1,7 +1,7 @@
 {
   "name": "letterhead",
-  "version": "1.1.0",
-  "description": "Personal mail merge for macOS",
+  "version": "2.0.0",
+  "description": "Mail, outreach and a reply assistant for macOS",
   "main": "src/main.js",
   "scripts": {
     "start": "electron ."
@@ -13,7 +13,8 @@
   "dependencies": {
     "imapflow": "^2.9.1",
     "mailparser": "^3.12.4",
-    "nodemailer": "^10.2.1"
+    "nodemailer": "^10.2.1",
+    "sql.js": "^1.15.2"
   },
   "devDependencies": {
     "@electron/packager": "^18.4.4",
