@@ -104,7 +104,10 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: false, spellcheck: true },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-  win.once('ready-to-show', () => { if (!app.getLoginItemSettings().wasOpenedAsHidden) win.show(); });
+  // ready-to-show is not always delivered for transparent, vibrant windows, so also show after load
+  const showOnce = () => { if (win && !win.isDestroyed() && !win.isVisible() && !app.getLoginItemSettings().wasOpenedAsHidden) win.show(); };
+  win.once('ready-to-show', showOnce);
+  win.webContents.once('did-finish-load', () => setTimeout(showOnce, 1500));
   if (process.env.LETTERHEAD_HARNESS) require(process.env.LETTERHEAD_HARNESS)(win, { nativeTheme, getScheduler: () => scheduler, getUpdater: () => updater, getPower: () => power, getWired: () => wired });
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/i.test(url)) shell.openExternal(url); else if (/^mailto:/i.test(url)) send('menu', { action: 'compose', mailto: url }); return { action: 'deny' }; });
   win.webContents.on('will-navigate', (e, url) => { if (!url.startsWith('file:')) { e.preventDefault(); shell.openExternal(url); } });
