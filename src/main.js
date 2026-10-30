@@ -25,8 +25,17 @@ let win = null;
 
 const dataDir = () => app.getPath('userData');
 const file = n => path.join(dataDir(), n);
-function readJson(n, fallback) { try { return JSON.parse(fs.readFileSync(file(n), 'utf8')); } catch (e) { return fallback; } }
-function writeJson(n, v) { fs.mkdirSync(dataDir(), { recursive: true }); fs.writeFileSync(file(n), JSON.stringify(v, null, 2)); }
+function readJson(n, fallback) {
+  let text; try { text = fs.readFileSync(file(n), 'utf8'); } catch (e) { return fallback; }
+  try { return JSON.parse(text); } catch (e) {
+    // keep the damaged file for the log instead of silently overwriting it later
+    try { fs.renameSync(file(n), file(n) + '.damaged'); } catch (er) { /* ignore */ }
+    try { require('./diag').log.error('data', `${n} was damaged and set aside as ${n}.damaged: ${e.message}`); } catch (er) { /* ignore */ }
+    return fallback;
+  }
+}
+// write to a temp file and rename, so a crash or full disk never leaves half a settings file
+function writeJson(n, v) { fs.mkdirSync(dataDir(), { recursive: true }); const f = file(n), tmp = f + '.tmp-' + process.pid; fs.writeFileSync(tmp, JSON.stringify(v, null, 2)); fs.renameSync(tmp, f); }
 
 // ---------- account (password encrypted with the macOS Keychain via safeStorage) ----------
 function loadAccount(withSecret) {
@@ -365,11 +374,20 @@ app.whenReady().then(async () => {
   try {
     wired = await wireMail({ app, ipcMain, dialog, shell, safeStorage, Notification, send, settings, setting, saveSettings: p => writeJson('settings.json', { ...settings(), ...p }),
       accountForSend: () => accountForSend(), usage, getDailyCap: () => Number(setting('cap', 500)) || 0, file, readJson, writeJson, showWindow, getWin: () => win });
-  } catch (e) { diag.log.error('mail wiring failed', e); }
+  } catch (e) {
+    diag.log.error('mail wiring failed', e);
+    // answer the mail and assistant calls with a clear error instead of leaving them unregistered
+    const msg = 'Mail could not start: ' + e.message + '. Settings > Help > Copy diagnostics has details.';
+    for (const ch of ['mail:status', 'mail:restart', 'mail:folders', 'mail:threads', 'mail:thread', 'mail:body', 'mail:sync', 'mail:more', 'mail:action', 'mail:search', 'mail:contacts', 'mail:select', 'mail:attachment', 'mail:send', 'mail:saveDraft', 'mail:deleteDraft', 'mail:openLink',
+      'ai:status', 'ai:setKey', 'ai:test', 'style:index', 'style:progress', 'style:profile', 'style:saveProfile', 'style:clear',
+      'assist:draft', 'assist:list', 'assist:candidates', 'assist:suggestion', 'assist:setDraft', 'assist:dismiss', 'assist:hold', 'assist:sendNow', 'assist:autolog', 'assist:queueBacklog']) {
+      try { ipcMain.handle(ch, () => ({ ok: false, error: msg })); } catch (er) { /* already registered before the failure */ }
+    }
+  }
   createWindow();
   win.webContents.on('render-process-gone', (ev, d) => { diag.log.error('renderer gone', d.reason + ' ' + d.exitCode); if (d.reason !== 'clean-exit' && !quitting) setTimeout(() => { if (win && !win.isDestroyed()) win.reload(); }, 500); });
   win.webContents.on('unresponsive', () => diag.log.warn('window', 'not responding'));
-  win.webContents.on('console-message', (ev, level, message, line, src) => { if (level >= 3) diag.log.error('console', `${message} (${path.basename(String(src || ''))}:${line})`); });
+  win.webContents.on('console-message', (ev, level, message, line, src) => { if (level >= 3 && !/ResizeObserver loop/.test(message)) diag.log.error('console', `${message} (${path.basename(String(src || ''))}:${line})`); });
   if (MODE === 'smoke') require('./smoke')(win, { app, diag, getWired: () => wired, getScheduler: () => scheduler, out: SMOKE, startedAt });
   if (missedAtLaunch.length) win.webContents.once('did-finish-load', () => setTimeout(() => send('batches:missed', missedAtLaunch), 600));
   powerMonitor.on('resume', () => scheduler.tick());

@@ -1,5 +1,6 @@
 /* errors in this window go to the log in Settings > Help */
-window.addEventListener('error', e => { try { lh.diag.report('window', (e.error && e.error.stack) || e.message + ' at ' + e.filename + ':' + e.lineno); } catch (er) { /* preload missing */ } });
+const BENIGN = /ResizeObserver loop/;
+window.addEventListener('error', e => { if (BENIGN.test(e.message || '')) return; try { lh.diag.report('window', (e.error && e.error.stack) || e.message + ' at ' + e.filename + ':' + e.lineno); } catch (er) { /* preload missing */ } });
 window.addEventListener('unhandledrejection', e => { try { const r = e.reason; lh.diag.report('promise', (r && (r.stack || r.message)) || String(r)); } catch (er) { /* preload missing */ } });
 'use strict';
 /* Letterhead renderer */
@@ -1024,21 +1025,25 @@ lh.on('menu', m => {
 
 /* ---------------- boot ---------------- */
 (async function boot() {
+  // each step can fail on its own (a damaged file, a missing service) without leaving a blank window
+  const safe = async (what, p, fallback) => { try { const v = await p; return v === undefined ? fallback : v; } catch (e) { lh.diag.report('startup ' + what, (e && (e.stack || e.message)) || String(e)); S.bootErrors = (S.bootErrors || 0) + 1; return fallback; } };
   if (lh.platform === 'darwin') document.documentElement.classList.add('mac');
-  S.account = await lh.account.get();
-  const st = await lh.settings.get(); if (st) S.settings = { ...S.settings, ...st };
-  const d = await lh.draft.get();
+  S.account = await safe('account', lh.account.get(), null);
+  const st = await safe('settings', lh.settings.get(), null); if (st) S.settings = { ...S.settings, ...st };
+  const d = await safe('draft', lh.draft.get(), null);
   if (d) {
     Object.assign(S.draft, d.draft || {}); S.recipients = d.recipients || []; S.columns = d.columns || [];
     S.invalid = d.invalid || 0; S.dupes = d.dupes || 0; S.sourceName = d.sourceName || ''; Object.assign(S.send, d.send || {});
-    if (S.draft.attachments && S.draft.attachments.length) S.draft.attachments = await lh.attachStat(S.draft.attachments.map(a => a.path));
+    if (S.draft.attachments && S.draft.attachments.length) S.draft.attachments = await safe('attachments', lh.attachStat(S.draft.attachments.map(a => a.path)), []);
   }
-  S.info = await lh.app.info(); S.batches = await lh.batches.list(); S.upd = await lh.update.state(); S.power = await lh.power.status();
-  S.run = await lh.campaign.snapshot();
+  S.info = await safe('info', lh.app.info(), {}); S.batches = await safe('batches', lh.batches.list(), []) || []; S.upd = await safe('update', lh.update.state(), null); S.power = await safe('power', lh.power.status(), null);
+  S.run = await safe('campaign', lh.campaign.snapshot(), null);
   if (S.run && S.run.source) S.runSource = S.run.source;
-  fillAccount(S.account); renderAcctChip(); renderRecipients(); renderNavCount(); await refreshUsage();
+  for (const [what, fn] of [['account', () => { fillAccount(S.account); renderAcctChip(); }], ['recipients', () => { renderRecipients(); renderNavCount(); }]]) { try { fn(); } catch (e) { lh.diag.report('startup ' + what, e.stack || e.message); S.bootErrors = (S.bootErrors || 0) + 1; } }
+  await safe('usage', refreshUsage(), null);
   const start = new URLSearchParams(location.search).get('tab') || (S.account && S.account.hasPassword ? (S.settings.mailEnabled === false ? (S.recipients.length ? 'letter' : 'recipients') : 'mail') : 'account');
-  go(start);
-  renderNavSched(); renderAwake(); renderUpdate();
+  try { go(start); } catch (e) { lh.diag.report('startup screen ' + start, e.stack || e.message); try { go('settings'); } catch (e2) { /* nothing else to try */ } }
+  for (const fn of [renderNavSched, renderAwake, renderUpdate]) { try { fn(); } catch (e) { lh.diag.report('startup ' + fn.name, e.stack || e.message); } }
+  if (S.bootErrors) toast('Part of Letterhead did not load. Settings > Help > View error log has the details.', true);
   document.body.dataset.ready = '1';
 })();

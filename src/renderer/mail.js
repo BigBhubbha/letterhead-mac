@@ -307,7 +307,8 @@ function frameDoc(inner, showImages, hideQuotes) {
   a{color:#9C3B25} blockquote{margin:0 0 0 .6em;padding-left:.8em;border-left:2px solid #DDD1BF;color:#5E554B}
   ${showImages ? '' : 'img[data-blocked]{display:none!important}'}
   ${hideQuotes ? '.gmail_quote,blockquote[type=cite],.lh-quote,#appendonsend,.yahoo_quoted{display:none!important}' : ''}
-  </style></head><body>${inner}</body></html>`;
+  #lh-root{display:flow-root}
+  </style></head><body><div id="lh-root">${inner}</div></body></html>`;
 }
 const linkify = s => esc(s).replace(/\bhttps?:\/\/[^\s<>"')]+/g, u => `<a href="${u}" data-href="${u}">${u}</a>`).replace(/\b[\w.+-]+@[\w-]+\.[\w.-]+\b/g, a => `<a href="mailto:${a}" data-href="mailto:${a}">${a}</a>`);
 function splitQuoted(text) {
@@ -344,9 +345,12 @@ function paintBody(m) {
   if (f) {
     f.addEventListener('load', () => {
       const d = f.contentDocument; if (!d) return;
-      let lastH = 0, raf = 0; const fit = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { const h = Math.max(40, Math.ceil(d.body.scrollHeight + 8)); if (Math.abs(h - lastH) > 2) { lastH = h; f.style.height = h + 'px'; } }); };
+      // size the frame to its content: measure our own wrapper (its height never depends on the
+      // frame's height, unlike body with height:100% newsletters), and stop if it keeps changing
+      const root = d.getElementById('lh-root') || d.body;
+      let lastH = 0, raf = 0, n = 0, t0 = Date.now(); const fit = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { if (Date.now() - t0 > 4000) { t0 = Date.now(); n = 0; } if (++n > 40) return; const h = Math.max(40, Math.ceil(root.getBoundingClientRect().height + 10)); if (Math.abs(h - lastH) > 2) { lastH = h; f.style.height = h + 'px'; } }); };
       fit(); setTimeout(fit, 120); setTimeout(fit, 600);
-      try { new ResizeObserver(fit).observe(d.body); } catch (e) {}
+      try { new ResizeObserver(fit).observe(root); } catch (e) {}
       d.addEventListener('click', e => { const a = e.target.closest && e.target.closest('a[href]'); if (a) { e.preventDefault(); openHref(a.getAttribute('href')); } });
     });
     f.srcdoc = frameDoc(html, trusted, hideQ);

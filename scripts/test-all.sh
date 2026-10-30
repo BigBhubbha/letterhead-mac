@@ -20,7 +20,8 @@ for port in 2525 2526 1143 1144 1993 1994; do
 done
 wait_port() { for i in $(seq 1 50); do (echo > /dev/tcp/127.0.0.1/$1) 2>/dev/null && return; sleep 0.2; done; }
 FAILED=0
-run() { echo "=== $1"; if node "test/$1" > "/tmp/lh-test-$1.log" 2>&1; then tail -1 "/tmp/lh-test-$1.log"; else echo "FAILED: $1"; tail -30 "/tmp/lh-test-$1.log"; FAILED=1; fi; }
+# perl alarm works as a timeout on stock macOS too
+run() { echo "=== $1 ($(date +%T))"; if perl -e 'alarm shift; exec @ARGV' "${TEST_TIMEOUT:-300}" node "test/$1" > "/tmp/lh-test-$1.log" 2>&1; then tail -1 "/tmp/lh-test-$1.log"; else echo "FAILED: $1"; tail -40 "/tmp/lh-test-$1.log"; for f in /tmp/lh-smtp*.log /tmp/lh-imap*.log /tmp/lh-mail*.log; do echo "--- $f"; tail -5 "$f"; done; FAILED=1; fi; }
 run engine.test.js
 run drafts.test.js
 # drafts.test sends drafts out of the 1143 mailbox, the scheduler test wants a fresh one
