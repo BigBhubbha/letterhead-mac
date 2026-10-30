@@ -38,7 +38,7 @@ while [ $i -lt 450 ]; do
   kill -0 $HP 2>/dev/null || { sleep 0.5; break; }
   i=$((i+1)); sleep 0.2
 done
-kill -9 $HP 2>/dev/null || true
+{ kill -9 $HP; wait $HP; } 2>/dev/null || true
 grep -q '"ok":true' "$TMP/health.json" 2>/dev/null || fail "the new copy did not start on this Mac within 90 seconds. Nothing was changed. Details: $(cat "$TMP/health.json" 2>/dev/null || echo none)"
 if [ -w /Applications ]; then DEST=/Applications; else DEST="$HOME/Applications"; mkdir -p "$DEST"; fi
 if [ -d "/Applications/Letterhead.app" ] && [ "$DEST" != /Applications ]; then
