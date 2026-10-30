@@ -7,7 +7,7 @@ const STAGE = path.join(__dirname, 'stage');
 (async () => {
   fs.rmSync(STAGE, { recursive: true, force: true });
   fs.mkdirSync(path.join(STAGE, 'src'), { recursive: true });
-  await esbuild.build({ entryPoints: ['src/main.js'], bundle: true, platform: 'node', target: 'node20', external: ['electron'], minify: true, outfile: path.join(STAGE, 'src/main.js'), logLevel: 'warning' });
+  await esbuild.build({ entryPoints: ['src/main.js'], bundle: true, platform: 'node', target: 'node20', external: ['electron', 'original-fs'], minify: true, outfile: path.join(STAGE, 'src/main.js'), logLevel: 'warning' });
   fs.copyFileSync('src/preload.js', path.join(STAGE, 'src/preload.js'));
   fs.copyFileSync(require.resolve('sql.js/dist/sql-wasm.wasm'), path.join(STAGE, 'src/sql-wasm.wasm'));
   fs.cpSync('src/renderer', path.join(STAGE, 'src/renderer'), { recursive: true });

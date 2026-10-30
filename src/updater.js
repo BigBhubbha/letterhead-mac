@@ -4,11 +4,25 @@
 // read latest.json from GitHub Releases, download the zip for this Mac's chip, check its sha256,
 // unpack with ditto, check the bundle id and version, then a small shell script swaps the app
 // once Letterhead has quit, clears quarantine, and opens the new copy.
-const fs = require('fs');
+// Inside Electron, the normal fs module treats any *.asar file as a folder (asar support). A downloaded
+// Letterhead.app contains Contents/Resources/app.asar, so fs.rmSync on a staged update fails with
+// ENOTDIR (rmdir on app.asar). original-fs is plain Node fs with no asar magic, so the updater uses it.
+let fs; try { fs = require('original-fs'); } catch (e) { fs = require('fs'); }
 const path = require('path');
 const crypto = require('crypto');
 const cp = require('child_process');
 const { EventEmitter } = require('events');
+
+/** Delete a path without following symlinks or opening asar files: /bin/rm -rf first, plain fs as backup. */
+function rmrf(p) {
+  if (!p || p === '/' || p.length < 8) throw new Error('Refusing to delete ' + p);
+  try { cp.execFileSync('/bin/rm', ['-rf', '--', p], { stdio: 'ignore' }); } catch (e) { /* fall through */ }
+  let exists = true; try { fs.lstatSync(p); } catch (e) { exists = false; }
+  if (exists) fs.rmSync(p, { recursive: true, force: true, maxRetries: 2 });
+  try { fs.lstatSync(p); } catch (e) { return; }
+  throw new Error('Could not clear ' + p);
+}
+const KEEP = new Set(['swap.sh', 'update.log']);
 
 const BUNDLE_ID = 'com.shabdwarar.letterhead';
 function cmpVer(a, b) {
@@ -66,7 +80,7 @@ class Updater extends EventEmitter {
     if (/\/Volumes\//.test(app)) return { ok: false, note: 'Letterhead is running from a disk image. Copy it to Applications first.' };
     return { ok: true };
   }
-  start() { setTimeout(() => this.check(), 15000); this._t = setInterval(() => this.check(), this.o.intervalMs); }
+  start() { setTimeout(() => { if (!this.staged) this.wipe(); this.check(); }, 15000); this._t = setInterval(() => this.check(), this.o.intervalMs); }
   stop() { clearInterval(this._t); }
 
   async check({ manual } = {}) {
@@ -86,30 +100,57 @@ class Updater extends EventEmitter {
       if (!asset || !asset.url || !/^[a-f0-9]{64}$/i.test(asset.sha256 || '')) throw new Error('The update feed has no download for this Mac.');
       const inst = this.installability();
       this.set({ status: 'downloading', version: m.version, notes: m.notes || '', progress: 0, canInstall: inst.ok, installNote: inst.note || null });
-      const dir = path.join(this.o.workDir, 'v' + m.version);
-      fs.rmSync(dir, { recursive: true, force: true }); fs.mkdirSync(dir, { recursive: true });
-      const zip = path.join(dir, 'update.zip');
-      await this.download(asset, zip);
-      const out = path.join(dir, 'unpacked');
-      await this.extract(zip, out);
-      const app = findApp(out);
-      if (!app) throw new Error('The download did not contain Letterhead.app.');
-      const plist = fs.readFileSync(path.join(app, 'Contents', 'Info.plist'), 'utf8');
-      if (plistValue(plist, 'CFBundleIdentifier') !== BUNDLE_ID) throw new Error('The downloaded app is not Letterhead. Update skipped.');
-      if (plistValue(plist, 'CFBundleShortVersionString') !== String(m.version).replace(/^v/, '')) throw new Error('The downloaded app version does not match the feed. Update skipped.');
-      fs.rmSync(zip, { force: true });
+      let app;
+      try { app = await this.stage(asset, m.version); }
+      catch (e) {
+        if (e.final) throw e;
+        // self heal: wipe the whole updates folder (stale copies from older attempts) and try once more
+        this.log('staging failed, wiping and retrying: ' + e.message);
+        this.wipe({ all: true });
+        this.set({ progress: 0 });
+        app = await this.stage(asset, m.version);
+      }
       this.staged = app;
       this.set({ status: 'ready', progress: 1 });
       this.emit('ready', { version: m.version, manual });
     } catch (e) {
+      this.log('update failed: ' + e.message);
       this.set({ status: 'error', error: e.message });
     } finally { this._busy = false; }
     return this.state;
   }
 
+  log(line) { try { fs.mkdirSync(this.o.workDir, { recursive: true }); fs.appendFileSync(path.join(this.o.workDir, 'update.log'), `[${new Date().toISOString()}] ${line}\n`); } catch (e) { /* ignore */ } }
+
+  /** Remove old attempts. all=false keeps the folder of the update that is currently staged. */
+  wipe({ all = false } = {}) {
+    let names = []; try { names = fs.readdirSync(this.o.workDir); } catch (e) { return; }
+    const keepDir = !all && this.staged ? path.relative(this.o.workDir, this.staged).split(path.sep)[0] : null;
+    for (const n of names) { if (KEEP.has(n) || n === keepDir) continue; try { rmrf(path.join(this.o.workDir, n)); } catch (e) { this.log('cleanup: ' + e.message); } }
+  }
+
+  /** Download, verify and unpack into a fresh folder of its own. Errors marked final are not retried. */
+  async stage(asset, version) {
+    this.wipe();
+    fs.mkdirSync(this.o.workDir, { recursive: true });
+    const dir = fs.mkdtempSync(path.join(this.o.workDir, 'v' + String(version).replace(/[^0-9A-Za-z.-]/g, '') + '-'));
+    const zip = path.join(dir, 'update.zip');
+    await this.download(asset, zip);
+    const out = path.join(dir, 'unpacked');
+    await this.extract(zip, out);
+    const app = findApp(out);
+    const fin = msg => Object.assign(new Error(msg), { final: true });
+    if (!app) throw new Error('The download did not contain Letterhead.app.');
+    const plist = fs.readFileSync(path.join(app, 'Contents', 'Info.plist'), 'utf8');
+    if (plistValue(plist, 'CFBundleIdentifier') !== BUNDLE_ID) { rmrf(dir); throw fin('The downloaded app is not Letterhead. Update skipped.'); }
+    if (plistValue(plist, 'CFBundleShortVersionString') !== String(version).replace(/^v/, '')) { rmrf(dir); throw fin('The downloaded app version does not match the feed. Update skipped.'); }
+    try { fs.rmSync(zip, { force: true }); } catch (e) { /* harmless */ }
+    return app;
+  }
+
   async download(asset, file) {
     const r = await this.o.fetch(asset.url, { redirect: 'follow', headers: { 'User-Agent': 'Letterhead/' + this.o.currentVersion } });
-    if (!r.ok || !r.body) throw new Error('Download failed with ' + r.status);
+    if (!r.ok || !r.body) throw Object.assign(new Error('Download failed with ' + r.status), { final: r.status === 404 });
     const total = Number(asset.size) || Number(r.headers.get('content-length')) || 0;
     const hash = crypto.createHash('sha256'); const ws = fs.createWriteStream(file);
     let got = 0, lastEmit = 0;
@@ -120,7 +161,7 @@ class Updater extends EventEmitter {
     }
     await new Promise((res, rej) => ws.end(err => err ? rej(err) : res()));
     const hex = hash.digest('hex');
-    if (hex.toLowerCase() !== asset.sha256.toLowerCase()) { fs.rmSync(file, { force: true }); throw new Error('The download did not match its checksum, so it was thrown away.'); }
+    if (hex.toLowerCase() !== asset.sha256.toLowerCase()) { fs.rmSync(file, { force: true }); throw Object.assign(new Error('The download did not match its checksum, so it was thrown away.'), { final: true }); }
   }
 
   extract(zip, out) {
@@ -144,4 +185,4 @@ class Updater extends EventEmitter {
   }
 }
 
-module.exports = { Updater, cmpVer, findApp, plistValue, SWAP_SCRIPT, BUNDLE_ID };
+module.exports = { Updater, cmpVer, findApp, rmrf, plistValue, SWAP_SCRIPT, BUNDLE_ID };

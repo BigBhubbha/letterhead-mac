@@ -143,6 +143,8 @@ Updates do not touch your account, lists, letters or batches.
 
 After an update, macOS may ask once more whether Letterhead can use its Keychain item, because each build has a new ad hoc signature. Click **Always Allow**. You might also need to confirm opening it, as on the first launch.
 
+If an update fails with "ENOTDIR: not a directory" (a bug in versions 1.1.0 and 2.0.0 that shows up when an earlier download is still in the updates folder), quit Letterhead, delete the folder `~/Library/Application Support/Letterhead/updates`, open Letterhead again and click **Check now**. From 2.0.1 on, Letterhead clears old downloads itself, unpacks each attempt into its own new folder, and if staging fails it wipes the updates folder and tries once more. Details of each attempt are in `updates/update.log`.
+
 Why not Apple's standard updater: it only works for apps signed with a paid Apple Developer ID, so Letterhead uses its own small one.
 
 ## Limits
