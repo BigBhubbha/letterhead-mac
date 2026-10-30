@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build Letterhead for both Mac chips, ad-hoc sign, and zip into OUT (default ./release).
+# Fallback only (no Mac): build on Linux, ad-hoc sign with rcodesign, and zip into OUT (default ./release).
 # Needs: node, npm deps installed, rcodesign on PATH (or ~/.local/bin), python3.
 set -eu
 cd "$(dirname "$0")/.."

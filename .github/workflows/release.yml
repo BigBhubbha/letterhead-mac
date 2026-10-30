@@ -1,0 +1,98 @@
+name: Build, test and release
+# Every push to main: run all tests, build and sign on a real Mac, launch the app and check it.
+# Manual run with publish=true: the same, then publish a GitHub release. Nothing is published
+# unless every test and the launch checks on macOS pass.
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['README.md']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a release for the version in package.json
+        type: boolean
+        default: false
+      notes:
+        description: Release notes
+        type: string
+        default: ''
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  mac:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Versions
+        run: sw_vers; uname -m; node -v; python3 -V
+      - name: Install
+        run: |
+          npm ci
+          python3 -m pip install --quiet aiosmtpd
+      - name: Refuse to overwrite an existing release
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(node -p "require('./package.json').version")
+          if gh release view "v$VER" >/dev/null 2>&1; then echo "v$VER is already released. Bump the version in package.json."; exit 1; fi
+      - name: Test suites
+        run: bash scripts/test-all.sh
+      - name: Updater test inside Electron (asar aware fs)
+        run: node_modules/.bin/electron test/updater-electron.test.js
+      - name: Signing identity (stable self-signed, from repo secrets)
+        env:
+          P12: ${{ secrets.MAC_CERT_P12 }}
+          P12_PASS: ${{ secrets.MAC_CERT_PASSWORD }}
+        run: |
+          KC="$RUNNER_TEMP/build.keychain-db"; KCP=$(openssl rand -hex 16)
+          security create-keychain -p "$KCP" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KCP" "$KC"
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$P12_PASS" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCP" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          security find-certificate -c "Letterhead Self-Signed" -p "$KC" > "$RUNNER_TEMP/cert.pem"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/cert.pem" || echo "could not add trust, trying to sign anyway"
+          ID=$(security find-identity -p codesigning "$KC" | awk '/Letterhead Self-Signed/ {print $2; exit}')
+          [ -n "$ID" ] || { security find-identity -p codesigning "$KC"; echo "identity not found"; exit 1; }
+          echo "SIGN_ID=$ID" >> "$GITHUB_ENV"; echo "KEYCHAIN=$KC" >> "$GITHUB_ENV"
+          echo "signing with $ID"
+      - name: Build and sign
+        env:
+          NOTES: ${{ inputs.notes }}
+        run: bash scripts/build-mac.sh
+      - name: Launch checks on macOS (smoke test, health check, updater swap)
+        run: bash scripts/smoke-mac.sh
+      - name: Upload build
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: letterhead-build
+          path: |
+            release/
+            smoke-native.json
+          retention-days: 14
+      - name: Publish release
+        if: ${{ success() && inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          VER=$(node -p "require('./package.json').version")
+          gh release create "v$VER" --target "$GITHUB_SHA" --title "Letterhead $VER" --notes "${NOTES:-Letterhead $VER}" \
+            release/Letterhead-$VER-AppleSilicon.zip release/Letterhead-$VER-Intel.zip release/Letterhead-$VER-macOS-both.zip release/latest.json release/install.sh
+          echo "Published https://github.com/$GITHUB_REPOSITORY/releases/tag/v$VER"

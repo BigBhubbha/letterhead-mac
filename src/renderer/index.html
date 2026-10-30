@@ -405,6 +405,13 @@
             <label class="tgl"><input type="checkbox" id="set-installOnQuit"><i></i><span><b>Install a downloaded update when I quit</b><small>Next time you open Letterhead, it is the new version.</small></span></label>
           </div>
         </div>
+        <div class="card diag-card">
+          <div class="eyebrow">Help</div>
+          <h3>If something goes wrong</h3>
+          <p class="hint" id="d-where">Letterhead keeps a log of errors on this Mac. Nothing is sent anywhere.</p>
+          <div class="row d-btns"><button class="secondary sm" id="d-view">View error log</button><button class="secondary sm" id="d-copy">Copy diagnostics</button><button class="ghost sm" id="d-reveal">Show in Finder</button></div>
+          <small class="hint">Copy diagnostics puts a short report on your clipboard (versions, settings, recent errors) to paste into a message. It leaves out passwords, keys and email text.</small>
+        </div>
         <div class="card soft guide">
           <div class="eyebrow">Why a cap</div>
           <h3>Sending limits</h3>
@@ -420,6 +427,7 @@
   </main>
 </div>
 <div class="composer hidden" id="composer"></div>
+<div class="veil hidden" id="d-veil"><div class="sheet logsheet"><div class="sheet-h row"><div><div class="eyebrow">Error log</div><h2>Recent activity</h2></div><span class="grow"></span><button class="ghost sm" id="d-refresh">Refresh</button><button class="secondary sm" id="d-copy2">Copy diagnostics</button><button class="primary sm" id="d-close">Done</button></div><pre class="d-lines" id="d-lines"></pre></div></div>
 <div class="veil hidden" id="k-veil"><div class="sheet keys" id="k-sheet"></div></div>
 <div class="veil hidden" id="b-veil">
   <form class="sheet" id="b-sheet" autocomplete="off">

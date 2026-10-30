@@ -41,5 +41,6 @@ contextBridge.exposeInMainWorld('lh', {
     setDraft: (k, t) => inv('assist:setDraft', k, t), dismiss: k => inv('assist:dismiss', k), hold: k => inv('assist:hold', k), sendNow: k => inv('assist:sendNow', k),
     autolog: () => inv('assist:autolog'), queueBacklog: ids => inv('assist:queueBacklog', ids),
   },
+  diag: { report: (where, msg) => inv('diag:report', where, msg), log: () => inv('diag:log'), copy: () => inv('diag:copy'), reveal: () => inv('diag:reveal') },
   on: (ch, fn) => { const h = (e, d) => fn(d); ipcRenderer.on(ch, h); return () => ipcRenderer.removeListener(ch, h); },
 });

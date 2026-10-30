@@ -1,3 +1,6 @@
+/* errors in this window go to the log in Settings > Help */
+window.addEventListener('error', e => { try { lh.diag.report('window', (e.error && e.error.stack) || e.message + ' at ' + e.filename + ':' + e.lineno); } catch (er) { /* preload missing */ } });
+window.addEventListener('unhandledrejection', e => { try { const r = e.reason; lh.diag.report('promise', (r && (r.stack || r.message)) || String(r)); } catch (er) { /* preload missing */ } });
 'use strict';
 /* Letterhead renderer */
 const $ = s => document.querySelector(s);
@@ -51,6 +54,24 @@ function go(tab) {
 }
 $$('.nav-item').forEach(b => b.addEventListener('click', () => go(b.dataset.tab)));
 document.addEventListener('click', e => { const a = e.target.closest('[data-ext]'); if (a) { e.preventDefault(); lh.openExternal(a.dataset.ext); } });
+
+/* ---------------- help: error log and diagnostics ---------------- */
+async function showLog() {
+  const r = await lh.diag.log();
+  const lines = (r.lines || []).slice(-300);
+  $('#d-lines').textContent = lines.length ? lines.join('\n') : 'Nothing logged yet.';
+  $('#d-lines').innerHTML = $('#d-lines').innerHTML.replace(/^(.*? ERROR .*)$/gm, '<b class="err">$1</b>');
+  $('#d-veil').classList.remove('hidden'); $('#d-lines').scrollTop = 1e9;
+}
+async function copyDiag() { const r = await lh.diag.copy(); toast(r && r.ok ? 'Diagnostics copied. Paste them into a message.' : 'Could not copy diagnostics.', !(r && r.ok)); }
+$('#d-view').addEventListener('click', showLog);
+$('#d-refresh').addEventListener('click', showLog);
+$('#d-copy').addEventListener('click', copyDiag);
+$('#d-copy2').addEventListener('click', copyDiag);
+$('#d-reveal').addEventListener('click', () => lh.diag.reveal());
+$('#d-close').addEventListener('click', () => $('#d-veil').classList.add('hidden'));
+$('#d-veil').addEventListener('click', e => { if (e.target.id === 'd-veil') $('#d-veil').classList.add('hidden'); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#d-veil').classList.contains('hidden')) $('#d-veil').classList.add('hidden'); });
 
 /* ---------------- persistence ---------------- */
 let saveT = null;
@@ -680,6 +701,7 @@ $('#s-new').addEventListener('click', async () => { if (await lh.campaign.clear(
 
 /* ---------------- settings ---------------- */
 function renderSettings() {
+  if ($('#d-where') && S.info) $('#d-where').textContent = (S.info.appPath ? `Installed at ${S.info.appPath}. ` : '') + 'Letterhead keeps a log of errors on this Mac. Nothing is sent anywhere.';
   renderUpdate();
   $('#set-cap').value = S.settings.cap; $('#set-delDraft').checked = !!S.settings.delDraft; $('#set-saveSent').checked = !!S.settings.saveSent;
   const u = S.usage, frees = u.oldest ? new Date(u.oldest + 86400000) : null;
@@ -969,8 +991,8 @@ $('#awake-chip').addEventListener('click', () => go('schedule'));
 function renderUpdate() {
   const u = S.upd || {};
   const bar = $('#upd-bar');
-  bar.classList.toggle('hidden', !(u.status === 'ready' && !S.updDismissed));
-  if (u.status === 'ready') {
+  bar.classList.toggle('hidden', !((u.status === 'ready' || u.status === 'blocked') && !S.updDismissed));
+  if (u.status === 'ready' || u.status === 'blocked') {
     $('#upd-text').innerHTML = u.canInstall === false ? esc(u.installNote || 'This copy of Letterhead cannot update itself.') : `<b>Letterhead ${esc(u.version)}</b> is ready. Restart to finish updating.`;
     $('#upd-go').classList.toggle('hidden', u.canInstall === false);
   }
@@ -978,8 +1000,9 @@ function renderUpdate() {
   $('#u-version').textContent = `Letterhead ${S.info.version || ''}`;
   const last = u.lastChecked ? ` Last checked ${fmtAt(u.lastChecked)}.` : '';
   const txt = { idle: 'Checks for a new version when Letterhead opens and every few hours.' + last, checking: 'Checking for updates…', uptodate: 'You have the latest version.' + last,
-    downloading: `Downloading version ${u.version}… ${Math.round((u.progress || 0) * 100)}%`, ready: u.canInstall === false ? (u.installNote || '') : `Version ${u.version} is downloaded. Restart Letterhead to install it.`, error: `Could not update: ${u.error || 'unknown error'}` }[u.status || 'idle'];
-  $('#u-status').textContent = txt;
+    downloading: `Downloading version ${u.version}… ${Math.round((u.progress || 0) * 100)}%`, ready: u.canInstall === false ? (u.installNote || '') : `Version ${u.version} is downloaded. Restart Letterhead to install it.`, error: `Could not update: ${u.error || 'unknown error'}`, blocked: `Version ${u.version} is available. ${u.installNote || ''}` }[u.status || 'idle'];
+  const rb = u.rollback && u.rollback.version && u.status !== 'ready' ? ` Version ${u.rollback.version} did not start on this Mac, so Letterhead kept this version.` : '';
+  $('#u-status').textContent = txt + rb;
   $('#u-bar').classList.toggle('hidden', u.status !== 'downloading'); $('#u-fill').style.width = Math.round((u.progress || 0) * 100) + '%';
   $('#u-check').textContent = u.status === 'ready' && u.canInstall !== false ? 'Restart now' : 'Check now';
   $('#u-check').disabled = u.status === 'checking' || u.status === 'downloading';

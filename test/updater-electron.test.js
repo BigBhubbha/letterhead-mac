@@ -10,7 +10,7 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lh-upde-'));
 const plist = v => `<plist><dict><key>CFBundleIdentifier</key><string>com.shabdwarar.letterhead</string><key>CFBundleShortVersionString</key><string>${v}</string></dict></plist>`;
 function fakeApp(dir, v) {
   const C = path.join(dir, 'Letterhead.app', 'Contents'); fs.mkdirSync(path.join(C, 'MacOS'), { recursive: true }); fs.mkdirSync(path.join(C, 'Resources'), { recursive: true });
-  fs.writeFileSync(path.join(C, 'Info.plist'), plist(v)); fs.writeFileSync(path.join(C, 'MacOS', 'Letterhead'), '#!/bin/sh\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(C, 'Info.plist'), plist(v)); fs.writeFileSync(path.join(C, 'MacOS', 'Letterhead'), `#!/bin/sh\nfor a in "$@"; do case "$a" in --health-check=*) printf '{"version":"${v}","ok":true}' > "\${a#--health-check=}";; esac; done\n`, { mode: 0o755 });
   // a real asar archive, so Electron's fs sees it as a folder
   const src = path.join(root, 'asar-src-' + v); fs.mkdirSync(src, { recursive: true }); fs.writeFileSync(path.join(src, 'package.json'), '{"name":"x","main":"main.js"}'); fs.writeFileSync(path.join(src, 'main.js'), '');
   cp.execFileSync(process.execPath.includes('electron') ? 'node' : process.execPath, [require.resolve('@electron/asar/bin/asar.js'), 'pack', src, path.join(C, 'Resources', 'app.asar')]);

@@ -706,3 +706,12 @@ mark.ph{background:var(--amber-soft);color:var(--amber);border-radius:4px;paddin
 ::-webkit-scrollbar-thumb:hover{background-color:color-mix(in srgb,var(--ink-3) 60%,transparent)}
 ::-webkit-scrollbar-track{background:transparent}
 .nav::-webkit-scrollbar{width:6px}
+
+/* help card and log viewer */
+.diag-card h3 { margin: 2px 0 6px; }
+.diag-card .d-btns { gap: 8px; flex-wrap: wrap; margin: 10px 0 8px; }
+.sheet.logsheet { width: min(920px, 92vw); max-height: 82vh; display: flex; flex-direction: column; }
+.sheet.logsheet .sheet-h { align-items: center; gap: 8px; }
+.d-lines { flex: 1; overflow: auto; margin: 12px 0 0; padding: 12px 14px; border-radius: 10px; background: rgba(0,0,0,.05); font: 11.5px/1.55 'JetBrains Mono', ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; max-height: 60vh; user-select: text; }
+.d-lines b.err { color: #b4432f; font-weight: 600; }
+@media (prefers-color-scheme: dark) { .d-lines { background: rgba(255,255,255,.05); } .d-lines b.err { color: #ff8a73; } }

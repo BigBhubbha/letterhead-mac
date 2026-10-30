@@ -22,7 +22,7 @@ function rmrf(p) {
   try { fs.lstatSync(p); } catch (e) { return; }
   throw new Error('Could not clear ' + p);
 }
-const KEEP = new Set(['swap.sh', 'update.log']);
+const KEEP = new Set(['swap.sh', 'update.log', 'rollback.json', 'health.json']);
 
 const BUNDLE_ID = 'com.shabdwarar.letterhead';
 function cmpVer(a, b) {
@@ -40,22 +40,48 @@ function findApp(dir, depth = 0) {
   return null;
 }
 const SWAP_SCRIPT = `#!/bin/sh
-# Letterhead update: wait for the app to quit, swap bundles, keep the old one if anything fails.
-PID="$1"; APP="$2"; NEW="$3"; RELAUNCH="$4"; LOG="$5"
+# Letterhead update: wait for the app to quit, swap bundles, then start the new copy once in
+# --health-check mode. Only when it reports healthy is the old copy deleted. If it hangs or fails,
+# the old copy goes back and rollback.json tells it what happened.
+PID="$1"; APP="$2"; NEW="$3"; RELAUNCH="$4"; LOG="$5"; HEALTH="$6"; WANT="$7"; WAIT="\${8:-90}"
+WORK="$(dirname "$LOG")"
 exec >>"$LOG" 2>&1
-echo "[$(date)] waiting for $PID"
+echo "[$(date)] update to $WANT: waiting for $PID"
 i=0
 while kill -0 "$PID" 2>/dev/null; do i=$((i+1)); if [ $i -gt 600 ]; then echo "app did not quit, giving up"; exit 1; fi; sleep 0.2; done
 BAK="$APP.previous"
 rm -rf "$BAK"
 if ! mv "$APP" "$BAK"; then echo "could not move the current app"; exit 1; fi
-if mv "$NEW" "$APP"; then
-  if command -v xattr >/dev/null 2>&1; then xattr -dr com.apple.quarantine "$APP" 2>/dev/null; fi
-  rm -rf "$BAK"
-  echo "updated $APP"
-else
+if ! mv "$NEW" "$APP"; then
   echo "swap failed, putting the old app back"
   rm -rf "$APP"; mv "$BAK" "$APP"
+  printf '{"version":"%s","reason":"could not move the new copy into place","t":%s}' "$WANT" "$(date +%s)" > "$WORK/rollback.json"
+else
+  if command -v xattr >/dev/null 2>&1; then xattr -dr com.apple.quarantine "$APP" 2>/dev/null; fi
+  HEALTHY=0
+  if [ -n "$HEALTH" ]; then
+    rm -f "$HEALTH"
+    "$APP/Contents/MacOS/Letterhead" --health-check="$HEALTH" >/dev/null 2>&1 &
+    HP=$!
+    j=0
+    while [ $j -lt $((WAIT*5)) ]; do
+      if [ -s "$HEALTH" ] && grep -q '"ok":true' "$HEALTH" && grep -q "\\"version\\":\\"$WANT\\"" "$HEALTH"; then HEALTHY=1; break; fi
+      if ! kill -0 $HP 2>/dev/null && [ ! -s "$HEALTH" ]; then sleep 0.4; [ -s "$HEALTH" ] || break; fi
+      j=$((j+1)); sleep 0.2
+    done
+    kill -9 $HP 2>/dev/null
+    echo "health check: healthy=$HEALTHY after $((j/5)) s: $(cat "$HEALTH" 2>/dev/null)"
+  else HEALTHY=1; fi
+  if [ $HEALTHY = 1 ]; then
+    rm -rf "$BAK"; rm -f "$WORK/rollback.json"
+    echo "updated $APP to $WANT"
+  else
+    echo "new version did not start, rolling back"
+    pkill -9 -f "$APP/Contents/" 2>/dev/null
+    rm -rf "$APP.failed"; mv "$APP" "$APP.failed" && mv "$BAK" "$APP"
+    rm -rf "$APP.failed"
+    printf '{"version":"%s","reason":"the new version did not start within %s seconds","t":%s}' "$WANT" "$WAIT" "$(date +%s)" > "$WORK/rollback.json"
+  fi
 fi
 if [ "$RELAUNCH" = "1" ]; then
   if [ "$(uname)" = "Darwin" ]; then /usr/bin/open "$APP"; elif [ -n "$LETTERHEAD_RELAUNCH" ]; then sh -c "$LETTERHEAD_RELAUNCH" & fi
@@ -68,7 +94,17 @@ class Updater extends EventEmitter {
     super();
     this.o = Object.assign({ platform: process.platform, arch: process.arch, fetch: globalThis.fetch, now: Date.now, intervalMs: 4 * 3600 * 1000 }, o);
     this.state = { status: 'idle', current: o.currentVersion, version: null, notes: null, progress: 0, error: null, lastChecked: null, canInstall: true, installNote: null };
-    this.staged = null; this._busy = false;
+    this.staged = null; this._busy = false; this.stagedVersion = null;
+    this.rollback = null;
+    try { this.rollback = JSON.parse(fs.readFileSync(path.join(this.o.workDir, 'rollback.json'), 'utf8')); } catch (e) { /* none */ }
+    if (this.rollback) this.state.rollback = this.rollback;
+  }
+  /** Called once the app is up: report a rolled back update so the user hears about it. */
+  confirmLaunch() {
+    if (this.rollback && !this.rollback.told) {
+      this.emit('rollback', this.rollback);
+      try { fs.writeFileSync(path.join(this.o.workDir, 'rollback.json'), JSON.stringify({ ...this.rollback, told: true })); } catch (e) { /* ignore */ }
+    }
   }
   set(p) { Object.assign(this.state, p); this.emit('state', { ...this.state }); }
   appBundle() { return this.o.appPath; }
@@ -76,7 +112,10 @@ class Updater extends EventEmitter {
     const app = this.appBundle();
     if (!app) return { ok: false, note: 'Updates install from the packaged app only.' };
     if (/AppTranslocation/.test(app)) return { ok: false, note: 'macOS is running Letterhead from a temporary copy. Move Letterhead to your Applications folder, open it from there, and updates will install.' };
-    try { fs.accessSync(path.dirname(app), fs.constants.W_OK); } catch (e) { return { ok: false, note: `Letterhead cannot write to ${path.dirname(app)}. Move it to your Applications folder.` }; }
+    try { fs.accessSync(path.dirname(app), fs.constants.W_OK); } catch (e) {
+      if (path.dirname(app) === '/Applications') return { ok: false, note: 'Your Mac account cannot change apps in /Applications (it is not an administrator), so updates cannot install there. Install Letterhead with the one line installer from the Letterhead release page. It puts Letterhead in your own Applications folder, where updates work.' };
+      return { ok: false, note: `Letterhead cannot write to ${path.dirname(app)}. Move it to your Applications folder.` };
+    }
     if (/\/Volumes\//.test(app)) return { ok: false, note: 'Letterhead is running from a disk image. Copy it to Applications first.' };
     return { ok: true };
   }
@@ -96,10 +135,12 @@ class Updater extends EventEmitter {
       const m = await r.json();
       this.set({ lastChecked: this.o.now() });
       if (!m || !m.version || cmpVer(m.version, this.o.currentVersion) <= 0) { this.set({ status: 'uptodate', version: m && m.version }); return this.state; }
+      if (!manual && this.rollback && this.rollback.version === m.version) { this.set({ status: 'uptodate', version: m.version, error: null }); return this.state; } // that version failed to start here, wait for the next one or a manual check
       const asset = m.assets && (m.assets[this.o.arch] || m.assets.universal);
       if (!asset || !asset.url || !/^[a-f0-9]{64}$/i.test(asset.sha256 || '')) throw new Error('The update feed has no download for this Mac.');
       const inst = this.installability();
-      this.set({ status: 'downloading', version: m.version, notes: m.notes || '', progress: 0, canInstall: inst.ok, installNote: inst.note || null });
+      if (!inst.ok) { this.set({ status: 'blocked', version: m.version, notes: m.notes || '', canInstall: false, installNote: inst.note }); return this.state; } // no point downloading what cannot be installed
+      this.set({ status: 'downloading', version: m.version, notes: m.notes || '', progress: 0, canInstall: true, installNote: null });
       let app;
       try { app = await this.stage(asset, m.version); }
       catch (e) {
@@ -110,7 +151,7 @@ class Updater extends EventEmitter {
         this.set({ progress: 0 });
         app = await this.stage(asset, m.version);
       }
-      this.staged = app;
+      this.staged = app; this.stagedVersion = m.version;
       this.set({ status: 'ready', progress: 1 });
       this.emit('ready', { version: m.version, manual });
     } catch (e) {
@@ -178,7 +219,8 @@ class Updater extends EventEmitter {
     const inst = this.installability(); if (!inst.ok) throw new Error(inst.note);
     const script = path.join(this.o.workDir, 'swap.sh'); fs.writeFileSync(script, SWAP_SCRIPT, { mode: 0o755 });
     const log = path.join(this.o.workDir, 'update.log');
-    const child = cp.spawn('/bin/sh', [script, String(this.o.pid || process.pid), this.appBundle(), this.staged, relaunch ? '1' : '0', log], { detached: true, stdio: 'ignore', env: process.env });
+    const health = this.o.healthCheck === false ? '' : path.join(this.o.workDir, 'health.json');
+    const child = cp.spawn('/bin/sh', [script, String(this.o.pid || process.pid), this.appBundle(), this.staged, relaunch ? '1' : '0', log, health, String(this.stagedVersion || ''), String(this.o.healthWait || 90)], { detached: true, stdio: 'ignore', env: process.env });
     child.unref();
     this.staged = null;
     return { script, log };

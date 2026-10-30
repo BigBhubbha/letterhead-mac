@@ -8,6 +8,17 @@ const path = require('path');
 const engine = require('./engine');
 const drafts = require('./drafts');
 const wireMail = require('./mailwire');
+const diag = require('./diag');
+const os = require('os');
+
+// --health-check=<file>: start, load the window hidden, write <file>, exit. The updater and the
+// installer run this on a freshly swapped app before deleting the old copy.
+// --smoke-test[=<file>]: full start with a throwaway data folder, visit every screen, report, exit.
+const argVal = name => { const a = process.argv.find(x => x === name || x.startsWith(name + '=')); return a === undefined ? undefined : (a.includes('=') ? a.slice(a.indexOf('=') + 1) : ''); };
+const HEALTH = argVal('--health-check');
+const SMOKE = argVal('--smoke-test');
+const MODE = HEALTH !== undefined ? 'health' : SMOKE !== undefined ? 'smoke' : 'normal';
+if (MODE !== 'normal') app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'letterhead-' + MODE + '-')));
 
 const isMac = process.platform === 'darwin';
 let win = null;
@@ -168,7 +179,7 @@ ipcMain.handle('settings:save', (e, s) => {
 ipcMain.handle('usage:get', () => ({ count: usage.count(), oldest: usage.oldest() }));
 ipcMain.handle('usage:reset', () => { writeJson('usage.json', []); return { count: 0, oldest: null }; });
 ipcMain.handle('open:external', (e, url) => { if (/^https:\/\//.test(url)) shell.openExternal(url); });
-ipcMain.handle('app:info', () => ({ version: app.getVersion(), packaged: app.isPackaged, tz: Intl.DateTimeFormat().resolvedOptions().timeZone, platform: process.platform, arch: process.arch, openAtLogin: app.getLoginItemSettings().openAtLogin }));
+ipcMain.handle('app:info', () => ({ appPath: updater ? updater.appBundle() : null, logFile: diag.file, version: app.getVersion(), packaged: app.isPackaged, tz: Intl.DateTimeFormat().resolvedOptions().timeZone, platform: process.platform, arch: process.arch, openAtLogin: app.getLoginItemSettings().openAtLogin }));
 ipcMain.handle('app:openAtLogin', (e, on) => { try { app.setLoginItemSettings({ openAtLogin: !!on }); } catch (er) {} return app.getLoginItemSettings().openAtLogin; });
 
 ipcMain.handle('csv:open', async () => {
@@ -256,7 +267,61 @@ ipcMain.handle('power:restore', () => power ? power.restoreNow() : { ok: true })
 if (process.env.LETTERHEAD_USERDATA) app.setPath('userData', process.env.LETTERHEAD_USERDATA);
 
 app.setName('Letterhead');
-const gotLock = process.env.LETTERHEAD_HARNESS ? true : app.requestSingleInstanceLock();
+diag.init(path.join(app.getPath('userData'), 'logs'));
+process.on('uncaughtException', e => diag.log.error('main', e));
+process.on('unhandledRejection', e => diag.log.error('main (promise)', e));
+const startedAt = Date.now();
+diag.log.info('app', `start ${app.getVersion()} mode=${MODE} at ${process.execPath}`);
+
+ipcMain.handle('diag:report', (e, where, msg) => { diag.log.error('renderer ' + String(where).slice(0, 60), String(msg).slice(0, 4000)); return true; });
+ipcMain.handle('diag:log', () => ({ lines: diag.tail(400), file: diag.file }));
+ipcMain.handle('diag:reveal', () => { if (diag.file) shell.showItemInFolder(diag.file); return true; });
+ipcMain.handle('diag:copy', async () => {
+  const { clipboard } = require('electron');
+  const text = await diagnosticsText(); clipboard.writeText(text); return { ok: true, chars: text.length };
+});
+async function diagnosticsText() {
+  const appPath = updater ? updater.appBundle() : null;
+  const inst = updater ? updater.installability() : null;
+  let mailStatus = null; try { mailStatus = wired ? wired.mail.status() : 'not started'; } catch (e) { mailStatus = 'error: ' + e.message; }
+  const acct = loadAccount(false);
+  const st = settings();
+  const safeSettings = Object.fromEntries(Object.entries(st).filter(([k]) => !/sig|about|key|pass/i.test(k)).map(([k, v]) => [k, typeof v === 'object' ? '[set]' : v]));
+  let quarantine = 'n/a';
+  if (isMac && appPath) { try { quarantine = require('child_process').execFileSync('/usr/bin/xattr', ['-p', 'com.apple.quarantine', appPath], { encoding: 'utf8', timeout: 3000 }).trim() || 'none'; } catch (e) { quarantine = 'none'; } }
+  return diag.report({
+    'Letterhead': `${app.getVersion()} (${app.isPackaged ? 'packaged' : 'dev'})`,
+    'App location': appPath || process.execPath,
+    'Can install updates here': inst ? (inst.ok ? 'yes' : 'no, ' + inst.note) : 'n/a',
+    'Quarantine flag': quarantine,
+    'Running for': Math.round((Date.now() - startedAt) / 60000) + ' min',
+    'Account': acct ? `${acct.preset || 'custom'} ${acct.host}:${acct.port} imap ${acct.imapHost || 'none'} password ${acct.hasPassword ? (acct.encrypted ? 'saved, encrypted' : 'saved, not encrypted') : 'missing'}` : 'none',
+    'Keychain encryption': (() => { try { return safeStorage.isEncryptionAvailable() ? 'available' : 'not available'; } catch (e) { return 'error ' + e.message; } })(),
+    'Mail': mailStatus,
+    'Update': updater ? { status: updater.state.status, version: updater.state.version, error: updater.state.error } : 'n/a',
+    'Keep awake': power ? power.status() : 'n/a',
+    'Batches': scheduler ? scheduler.batches.map(b => b.status).join(', ') || 'none' : 'n/a',
+    'Settings': safeSettings,
+  });
+}
+
+if (MODE === 'health') {
+  if (isMac && app.dock) app.dock.hide();
+  app.whenReady().then(async () => {
+    const out = HEALTH || path.join(app.getPath('userData'), 'health.json');
+    const res = { version: app.getVersion(), pid: process.pid, ok: false, t: Date.now() };
+    const finish = code => { try { fs.writeFileSync(out, JSON.stringify(res)); } catch (e) { /* the caller times out */ } app.exit(code); };
+    setTimeout(() => { res.error = 'timeout'; finish(2); }, 45000);
+    try {
+      const { MailDB } = require('./maildb'); const db = await MailDB.open(null); db.close && db.close(); // sql.js wasm loads
+      const w = new BrowserWindow({ show: false, webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: false } });
+      await w.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+      res.dom = await w.webContents.executeJavaScript('!!document.querySelector("#view-mail") && !!document.querySelector("#view-settings")');
+      res.ok = !!res.dom; finish(res.ok ? 0 : 1);
+    } catch (e) { res.error = e.message; finish(1); }
+  });
+} else {
+const gotLock = process.env.LETTERHEAD_HARNESS || MODE === 'smoke' ? true : app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
 app.on('second-instance', () => showWindow());
 
@@ -291,22 +356,28 @@ app.whenReady().then(async () => {
     currentVersion: app.getVersion(), feedUrl: FEED_URL, workDir: path.join(dataDir(), 'updates'),
     appPath: app.isPackaged || process.env.LETTERHEAD_APP_PATH ? (process.env.LETTERHEAD_APP_PATH || path.resolve(process.execPath, '..', '..', '..')) : null,
   });
-  updater.on('state', st => send('update:state', st));
+  updater.on('state', st => { send('update:state', st); if (st.status === 'error') diag.log.warn('update', st.error); });
+  updater.on('rollback', r => { diag.log.warn('update', `rolled back ${r.version}: ${r.reason}`); notify('Update did not start', `Letterhead ${r.version} did not open on this Mac, so you are still on ${app.getVersion()}. Nothing was lost.`); });
   updater.on('ready', ({ version }) => notify('Letterhead update ready', `Version ${version} is downloaded. Restart Letterhead to use it.`));
-  if (app.isPackaged || process.env.LETTERHEAD_UPDATE_FEED) { if (setting('autoUpdate', true)) updater.start(); }
+  if ((app.isPackaged || process.env.LETTERHEAD_UPDATE_FEED) && MODE === 'normal') { if (setting('autoUpdate', true)) updater.start(); }
+  updater.confirmLaunch && updater.confirmLaunch();
 
   try {
     wired = await wireMail({ app, ipcMain, dialog, shell, safeStorage, Notification, send, settings, setting, saveSettings: p => writeJson('settings.json', { ...settings(), ...p }),
       accountForSend: () => accountForSend(), usage, getDailyCap: () => Number(setting('cap', 500)) || 0, file, readJson, writeJson, showWindow, getWin: () => win });
-  } catch (e) { console.error('mail wiring failed', e); }
+  } catch (e) { diag.log.error('mail wiring failed', e); }
   createWindow();
+  win.webContents.on('render-process-gone', (ev, d) => { diag.log.error('renderer gone', d.reason + ' ' + d.exitCode); if (d.reason !== 'clean-exit' && !quitting) setTimeout(() => { if (win && !win.isDestroyed()) win.reload(); }, 500); });
+  win.webContents.on('unresponsive', () => diag.log.warn('window', 'not responding'));
+  win.webContents.on('console-message', (ev, level, message, line, src) => { if (level >= 3) diag.log.error('console', `${message} (${path.basename(String(src || ''))}:${line})`); });
+  if (MODE === 'smoke') require('./smoke')(win, { app, diag, getWired: () => wired, getScheduler: () => scheduler, out: SMOKE, startedAt });
   if (missedAtLaunch.length) win.webContents.once('did-finish-load', () => setTimeout(() => send('batches:missed', missedAtLaunch), 600));
   powerMonitor.on('resume', () => scheduler.tick());
   app.on('activate', () => showWindow());
 });
 
 app.on('before-quit', e => {
-  if (quitting || process.env.LETTERHEAD_HARNESS) { quitting = true; return; }
+  if (quitting || process.env.LETTERHEAD_HARNESS || MODE === 'smoke') { quitting = true; return; }
   const live = scheduler && scheduler.busy();
   const pending = scheduler && scheduler.batches.filter(b => ['scheduled', 'queued'].includes(b.status)).length;
   if (live || pending) {
@@ -321,3 +392,4 @@ app.on('before-quit', e => {
 });
 app.on('will-quit', () => { if (wired) { wired.assistant.stop(); try { wired.db.flush(); } catch (e) {} wired.mail.stop().catch(() => {}); } if (scheduler) { scheduler.saveNow(); scheduler.stop(); } if (power) power.shutdown(); });
 app.on('window-all-closed', () => { if (!isMac) app.quit(); });
+}

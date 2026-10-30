@@ -1,6 +1,6 @@
 {
   "name": "letterhead",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "description": "Mail, outreach and a reply assistant for macOS",
   "main": "src/main.js",
   "scripts": {
