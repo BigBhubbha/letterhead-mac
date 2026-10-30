@@ -22,6 +22,7 @@ module.exports = function smoke(win, { app, diag, getWired, getScheduler, out, s
       const t0 = Date.now(); while (!(await js(`document.body.dataset.ready === '1'`)) && Date.now() - t0 < 30000) await sleep(200);
       check('startup finished', await js(`document.body.dataset.ready === '1'`), `${Date.now() - t0} ms`);
       await sleep(500);
+      for (let i = 0; i < 50 && !win.isDestroyed() && !win.isVisible(); i++) await sleep(200); // ready-to-show can land after load
       check('window created and visible', !win.isDestroyed() && (win.isVisible() || process.env.LETTERHEAD_SMOKE_HIDDEN), `visible=${win.isVisible()}`);
       check('mail engine started (SQLite wasm loaded)', !!getWired());
       check('scheduler loaded', !!getScheduler());
