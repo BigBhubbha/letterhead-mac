@@ -1,14 +1,14 @@
 #!/bin/bash
 # Run every test suite against local test servers (SMTP via aiosmtpd, IMAP via hoodiecrow).
-# Needs: node deps installed, python3 with aiosmtpd. Used locally and by the release workflow.
+# Needs: node deps installed (python3 only for the zip helper). Used locally and by the release workflow.
 set -u
 cd "$(dirname "$0")/.."
 PIDS=()
 cleanup() { for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done; }
 trap cleanup EXIT
 rm -rf /tmp/mail1 /tmp/mail2526; mkdir -p /tmp/mail1 /tmp/mail2526
-python3 test/smtp_server.py 2525 /tmp/mail1 'bounce@' > /tmp/lh-smtp1.log 2>&1 & PIDS+=($!)
-python3 test/smtp_server.py 2526 /tmp/mail2526 > /tmp/lh-smtp2.log 2>&1 & PIDS+=($!)
+node test/smtp_server.js 2525 /tmp/mail1 'bounce@' > /tmp/lh-smtp1.log 2>&1 & PIDS+=($!)
+node test/smtp_server.js 2526 /tmp/mail2526 > /tmp/lh-smtp2.log 2>&1 & PIDS+=($!)
 start_imap() { node test/imap_server.js 1143 gmail > /tmp/lh-imap1.log 2>&1 & IMAPPID=$!; PIDS+=($IMAPPID); }
 start_imap
 node test/imap_server.js 1144 generic > /tmp/lh-imap2.log 2>&1 & PIDS+=($!)

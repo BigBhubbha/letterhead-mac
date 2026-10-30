@@ -39,7 +39,6 @@ jobs:
       - name: Install
         run: |
           npm ci
-          python3 -m pip install --quiet aiosmtpd
       - name: Refuse to overwrite an existing release
         if: ${{ inputs.publish }}
         env:
@@ -50,8 +49,10 @@ jobs:
       - name: Test suites
         run: bash scripts/test-all.sh
       - name: Updater test inside Electron (asar aware fs)
+        if: ${{ !cancelled() }}
         run: node_modules/.bin/electron test/updater-electron.test.js
       - name: Signing identity (stable self-signed, from repo secrets)
+        if: ${{ !cancelled() }}
         env:
           P12: ${{ secrets.MAC_CERT_P12 }}
           P12_PASS: ${{ secrets.MAC_CERT_PASSWORD }}
@@ -72,10 +73,12 @@ jobs:
           echo "SIGN_ID=$ID" >> "$GITHUB_ENV"; echo "KEYCHAIN=$KC" >> "$GITHUB_ENV"
           echo "signing with $ID"
       - name: Build and sign
+        if: ${{ !cancelled() }}
         env:
           NOTES: ${{ inputs.notes }}
         run: bash scripts/build-mac.sh
       - name: Launch checks on macOS (smoke test, health check, updater swap)
+        if: ${{ !cancelled() }}
         run: bash scripts/smoke-mac.sh
       - name: Upload build
         if: always()

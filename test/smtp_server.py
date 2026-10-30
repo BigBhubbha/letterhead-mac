@@ -23,7 +23,7 @@ class H:
         with open(os.path.join(OUT, 'log.txt'), 'a') as f: f.write(f"{time.time():.3f} {' '.join(envelope.rcpt_tos)} {n}\n")
         return '250 Message accepted'
 
-c = Controller(H(), hostname='127.0.0.1', port=PORT, authenticator=auth, auth_required=True, auth_require_tls=False)
+c = Controller(H(), hostname='127.0.0.1', port=PORT, authenticator=auth, auth_required=True, auth_require_tls=False, ready_timeout=60)
 c.start(); print('listening', PORT, flush=True)
 try:
     while True: time.sleep(1)

@@ -84,7 +84,7 @@ else
   fi
 fi
 if [ "$RELAUNCH" = "1" ]; then
-  if [ "$(uname)" = "Darwin" ]; then /usr/bin/open "$APP"; elif [ -n "$LETTERHEAD_RELAUNCH" ]; then sh -c "$LETTERHEAD_RELAUNCH" & fi
+  if [ -n "$LETTERHEAD_RELAUNCH" ]; then sh -c "$LETTERHEAD_RELAUNCH" & elif [ "$(uname)" = "Darwin" ]; then /usr/bin/open "$APP"; fi
 fi
 echo "done"
 `;

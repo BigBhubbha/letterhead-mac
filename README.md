@@ -4,28 +4,31 @@ Your email on your Mac: a full inbox you can use instead of the Gmail website, a
 
 Letterhead 2 keeps everything from 1.x (mail merge, sending your drafts, scheduled batches, the daily cap, keeping your Mac awake and automatic updates) and adds **Mail** and the **Reply assistant**.
 
-## Which app do I open?
+## Installing (recommended: one line in Terminal)
 
-- **Apple Silicon** (M1, M2, M3, M4 and newer): use `Letterhead-...-AppleSilicon.zip`, or the `Letterhead for Apple Silicon` folder in the combined zip.
-- **Intel Mac**: use `Letterhead-...-Intel.zip`, or the `Letterhead for Intel` folder.
+Open **Terminal** (in Applications > Utilities) and paste:
 
-Not sure? Click the Apple menu, then **About This Mac**. If it says "Chip: Apple M...", use Apple Silicon. If it says "Processor: Intel", use Intel.
+```sh
+curl -fsSL https://github.com/BigBhubbha/letterhead-mac/releases/latest/download/install.sh | sh
+```
 
-Drag `Letterhead.app` into your **Applications** folder and open it from there. Updates can only install when it runs from Applications (or another folder you can write to), not straight from Downloads or a disk image.
+It downloads the newest version for your Mac's chip, checks it against the SHA-256 checksum published with the release, test-starts it, puts it in **/Applications** (or in **Applications** inside your home folder if your Mac account cannot change /Applications), and opens it. Your settings and mail are not touched. Run the same line again any time to reinstall.
 
-## Opening it the first time
+Why not just download the zip in a browser: Letterhead is not signed with a paid Apple Developer ID. On macOS 26, a copy downloaded by a browser is flagged as quarantined, and Gatekeeper can hold that copy forever: the Dock icon bounces and no window opens, even after Open Anyway. A copy fetched with `curl` (by the installer, or by Letterhead's own updater) does not get that flag, so it opens normally.
 
-Letterhead is not signed with a paid Apple developer certificate, so macOS asks you to confirm the first time.
+## Installing by hand from the zip
 
-1. In Applications, **right-click** (or Control-click) Letterhead and choose **Open**, then click **Open** again.
-2. On newer macOS versions (Sequoia and later) that menu may only show "Done" or "Move to Trash". If so, click **Done**, open **System Settings > Privacy & Security**, scroll down, and click **Open Anyway** next to the Letterhead message. Then open the app again.
-3. If macOS says the app "is damaged", open Terminal and run this once, then open it again:
+- **Apple Silicon** (M1 and newer): `Letterhead-...-AppleSilicon.zip`. **Intel Mac**: `Letterhead-...-Intel.zip`. Not sure? Apple menu > **About This Mac**: "Chip: Apple M..." is Apple Silicon.
+- Drag `Letterhead.app` into **Applications** and open it from there. Updates only install when it runs from a folder your account can change, not straight from Downloads or a disk image.
+- The first time, macOS asks you to confirm: click **Done**, open **System Settings > Privacy & Security**, click **Open Anyway** next to the Letterhead message, then open it again.
 
-   ```
-   xattr -cr /Applications/Letterhead.app
-   ```
+## If it will not open (the Dock icon keeps bouncing)
 
-After the first time it opens normally.
+That copy has been stopped by Gatekeeper, and on macOS 26 a copy that was stopped once tends to stay stuck, even after `xattr -cr` or Open Anyway. Do this instead:
+
+1. Quit it: right-click the bouncing icon > **Force Quit**.
+2. Drag that Letterhead.app to the Trash.
+3. Run the one line installer above. It installs a fresh copy that macOS does not hold.
 
 ## Making a Gmail App Password
 
@@ -137,7 +140,7 @@ A sleeping Mac cannot send. On the **Schedule** tab:
 
 ## Updates
 
-Letterhead updates itself. When it opens, and every 4 hours after that, it checks the project's GitHub Releases page for a newer version. If there is one, it downloads the right copy for your Mac in the background, checks the file against the SHA-256 checksum published with the release, and makes sure it really is Letterhead. Then it shows **Update ready, restart**. Click **Restart to update** and it swaps in the new copy and reopens. Or click **Later** and it installs the next time you quit. The version and a **Check now** button are in **Settings**, and there is **Check for Updates...** in the Letterhead menu. While a send is running, Letterhead waits for it to finish before it restarts.
+Letterhead updates itself (in place, wherever you installed it). When it opens, and every 4 hours after that, it checks the project's GitHub Releases page for a newer version. If there is one, it downloads the right copy for your Mac in the background, checks the file against the SHA-256 checksum published with the release, and makes sure it really is Letterhead. Then it shows **Update ready, restart**. Click **Restart to update** and it swaps in the new copy and reopens. Or click **Later** and it installs the next time you quit. The version and a **Check now** button are in **Settings**, and there is **Check for Updates...** in the Letterhead menu. While a send is running, Letterhead waits for it to finish before it restarts.
 
 Updates do not touch your account, lists, letters or batches.
 
@@ -150,6 +153,18 @@ Why not Apple's standard updater: it only works for apps signed with a paid Appl
 ## Limits
 
 Google's help pages list a limit of 500 emails per rolling 24 hours for personal Gmail accounts (2,000 for Google Workspace). Letterhead's daily cap in **Settings** defaults to 500 and pauses sending when it is reached. It only counts mail sent from Letterhead, so leave some room for your normal email. A draft addressed to three people counts as three.
+
+## Help and error log
+
+**Settings > Help** has **View error log**, **Copy diagnostics** and **Show in Finder**. The log lives at `~/Library/Application Support/Letterhead/logs/letterhead.log` and stays on your Mac. Copy diagnostics puts a short report on the clipboard (version, where the app is installed, whether it can update itself, mail and update status, recent errors) without passwords, keys or email text, so it is safe to paste into a message.
+
+## How releases are checked
+
+Every release is built and signed on a real Mac by GitHub Actions (`.github/workflows/release.yml`). Before anything is published, the workflow runs every test suite, launches the built app with `--smoke-test` (it opens the window, visits every screen, the composer, the shortcuts sheet and the error log, and fails on any logged error), runs `--health-check` on both chips, and does a real update swap. If any of that fails, nothing is published. To release: bump `version` in package.json, commit, push, then run `NOTES="What changed" sh scripts/release.sh`.
+
+The app is signed with a stable self-signed certificate, so macOS sees each new version as the same app: once you click **Always Allow** on the Keychain prompt, it keeps working after updates. The certificate lives only in the repository's encrypted Actions secrets.
+
+When Letterhead updates itself, it swaps in the new copy, starts it once in a hidden health check, and only then deletes the old copy. If the new version does not start within 90 seconds, the old copy is put back, you get a notification, and automatic updates skip that version.
 
 ## Where your data lives
 
