@@ -659,6 +659,6 @@ async function onTab(tab) {
   if (window.LH2A) LH2A.onTab(tab);
 }
 window.LH2 = { onTab, compose, reply, openFolder, sendWithUndo, call, M, avatar, when, fullWhen, isMe, sanitize, loadList, openThread: t => openThread(t), selectThread: async (thread, folder) => { if (S.tab !== 'mail') go('mail'); const i = M.list.findIndex(x => x.thread === thread); if (i >= 0) return selectIdx(i); M.sel = thread; await openThread({ thread, folder }); } };
-loadFolders();
+if (new URLSearchParams(location.search).get("health") !== "1") loadFolders();
 if (S.tab) onTab(S.tab);
 })();

@@ -94,6 +94,7 @@ function renderAcctChip() {
   const a = S.account, ok = !!(a && a.hasPassword);
   $('#acct-chip').classList.toggle('ok', ok);
   $('#acct-chip-text').textContent = ok ? (a.email || a.user) : 'Not connected';
+  if (a && a.keychainError && !S.keychainTold) { S.keychainTold = true; toast('Letterhead could not read your saved app password from the Keychain (the prompt may have been denied). Enter it again on the Account tab and click Save.', true); }
   $('#nav-acct-dot').classList.toggle('ok', ok);
 }
 function renderNavCount() { const n = validRecipients().length; $('#nav-rcpt-count').textContent = n ? fmtN(n) : ''; }
@@ -1025,6 +1026,7 @@ lh.on('menu', m => {
 
 /* ---------------- boot ---------------- */
 (async function boot() {
+  if (new URLSearchParams(location.search).get('health') === '1') { document.body.dataset.ready = '1'; return; } // --health-check only needs the page to load
   // each step can fail on its own (a damaged file, a missing service) without leaving a blank window
   const safe = async (what, p, fallback) => { try { const v = await p; return v === undefined ? fallback : v; } catch (e) { lh.diag.report('startup ' + what, (e && (e.stack || e.message)) || String(e)); S.bootErrors = (S.bootErrors || 0) + 1; return fallback; } };
   if (lh.platform === 'darwin') document.documentElement.classList.add('mac');

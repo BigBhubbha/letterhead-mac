@@ -277,6 +277,6 @@ function onTab(tab) {
   if (tab === 'settings') renderMailSettings();
 }
 window.LH2A = { readerCard, onTab, refresh: () => { if (S.tab === 'assist') renderQueue(); countSoon(); }, textToHtml };
-loadStatus().then(updateCount);
+if (new URLSearchParams(location.search).get("health") !== "1") loadStatus().then(updateCount);
 if (S.tab === 'ai' || S.tab === 'assist') onTab(S.tab);
 })();

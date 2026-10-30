@@ -18,7 +18,10 @@ module.exports = function smoke(win, { app, diag, getWired, getScheduler, out, s
   const timer = setTimeout(() => { check('finished within 90 s', false); finish(3); }, 90000);
   win.webContents.once('did-finish-load', async () => {
     try {
-      await sleep(1500);
+      // wait for the window's own startup to finish (it picks its first screen at the end)
+      const t0 = Date.now(); while (!(await js(`document.body.dataset.ready === '1'`)) && Date.now() - t0 < 30000) await sleep(200);
+      check('startup finished', await js(`document.body.dataset.ready === '1'`), `${Date.now() - t0} ms`);
+      await sleep(500);
       check('window created and visible', !win.isDestroyed() && (win.isVisible() || process.env.LETTERHEAD_SMOKE_HIDDEN), `visible=${win.isVisible()}`);
       check('mail engine started (SQLite wasm loaded)', !!getWired());
       check('scheduler loaded', !!getScheduler());

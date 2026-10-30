@@ -46,7 +46,7 @@ function loadAccount(withSecret) {
   out.hasPassword = !!(a.passEnc || a.passPlain);
   out.encrypted = !!a.passEnc;
   if (withSecret) {
-    if (a.passEnc) { try { out.pass = safeStorage.decryptString(Buffer.from(a.passEnc, 'base64')); } catch (e) { out.pass = ''; } }
+    if (a.passEnc) { try { out.pass = safeStorage.decryptString(Buffer.from(a.passEnc, 'base64')); } catch (e) { out.pass = ''; out.keychainError = true; try { require('./diag').log.error('keychain', 'could not decrypt the saved password: ' + e.message); } catch (er) { /* ignore */ } } }
     else out.pass = a.passPlain || '';
   }
   return out;
@@ -173,7 +173,12 @@ let powerT = null;
 function refreshPower() { clearTimeout(powerT); powerT = setTimeout(() => power && power.update({ ...powerWanted(), blockerApi: powerSaveBlocker }).catch(() => {}), 200); }
 
 // ---------- IPC ----------
-ipcMain.handle('account:get', () => loadAccount(false));
+ipcMain.handle('account:get', () => {
+  const a = loadAccount(false); if (!a || !a.encrypted) return a;
+  // check once that the Keychain still lets us read the password (a denied prompt makes every send fail)
+  const full = loadAccount(true); if (full && full.keychainError) a.keychainError = true;
+  return a;
+});
 ipcMain.handle('account:save', (e, a) => { const r = saveAccount(a); if (wired) wired.onAccount(); return r; });
 ipcMain.handle('account:clear', () => { try { fs.unlinkSync(file('account.json')); } catch (e) {} if (wired) wired.mail.stop().catch(() => {}); return null; });
 ipcMain.handle('account:verify', (e, a) => engine.verifyAccount(accountForSend(a)));
@@ -324,7 +329,7 @@ if (MODE === 'health') {
     try {
       const { MailDB } = require('./maildb'); const db = await MailDB.open(null); db.close && db.close(); // sql.js wasm loads
       const w = new BrowserWindow({ show: false, webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: false } });
-      await w.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+      await w.loadFile(path.join(__dirname, 'renderer', 'index.html'), { query: { health: '1' } });
       res.dom = await w.webContents.executeJavaScript('!!document.querySelector("#view-mail") && !!document.querySelector("#view-settings")');
       res.ok = !!res.dom; finish(res.ok ? 0 : 1);
     } catch (e) { res.error = e.message; finish(1); }
