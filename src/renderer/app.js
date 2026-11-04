@@ -51,7 +51,6 @@ function go(tab) {
   if (tab === 'drafts') { if (S.drafts.stale && !S.drafts.loading) loadDrafts(); else renderDrafts(); }
   if (tab === 'settings') renderSettings();
   if (tab === 'schedule') renderSchedule();
-  if (window.LH2) LH2.onTab(tab);
 }
 $$('.nav-item').forEach(b => b.addEventListener('click', () => go(b.dataset.tab)));
 document.addEventListener('click', e => { const a = e.target.closest('[data-ext]'); if (a) { e.preventDefault(); lh.openExternal(a.dataset.ext); } });
@@ -83,6 +82,8 @@ function persist() {
 
 /* ---------------- sidebar ---------------- */
 async function refreshUsage() { S.usage = await lh.usage.get(); renderMeter(); }
+let usageT = null;
+function refreshUsageSoon() { if (!usageT) usageT = setTimeout(() => { usageT = null; refreshUsage(); }, 2000); }
 function renderMeter() {
   const cap = Number(S.settings.cap) || 0, n = S.usage.count;
   $('#meter-text').textContent = cap ? `${fmtN(n)} of ${fmtN(cap)}` : `${fmtN(n)} sent`;
@@ -653,7 +654,7 @@ function addLog(l) {
   const b = $('#t-log'); const d = document.createElement('div'); d.className = l.kind;
   d.innerHTML = `<time>${new Date(l.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</time><span>${l.email ? `<b>${esc(l.email)}</b> ` : ''}${esc(l.text)}</span>`;
   const stick = b.scrollTop + b.clientHeight >= b.scrollHeight - 20;
-  b.appendChild(d); if (stick) b.scrollTop = b.scrollHeight;
+  b.appendChild(d); while (b.childElementCount > 400) b.firstElementChild.remove(); if (stick) b.scrollTop = b.scrollHeight;
 }
 lh.on('campaign:update', u => {
   const live = ['running', 'waiting', 'paused'].includes(u.state);
@@ -667,12 +668,12 @@ lh.on('campaign:update', u => {
   if (u.item) { S.run.items[u.item.id] = u.item; const row = document.getElementById('row-' + u.item.id); if (row) row.innerHTML = rowHtml(u.item); if (u.item.status === 'sending' && row) { const w = row.closest('.table-wrap'), top = row.offsetTop - 34, bot = row.offsetTop + row.offsetHeight; if (top < w.scrollTop || bot > w.scrollTop + w.clientHeight) w.scrollTop = Math.max(0, top - w.clientHeight / 2); } }
   else if (S.run.items.some(i => i.status === 'queued') && S.tab === 'send') { /* retry may change many rows */ lh.campaign.snapshot().then(s => { if (s) { S.run = s; renderRunTable(); renderRunHead(); } }); }
   if (S.tab === 'send') renderRunHead(); else $('#nav-send-pulse').classList.toggle('on', u.state === 'running' || u.state === 'waiting');
-  if (u.item && u.item.status === 'sent') refreshUsage();
+  if (u.item && u.item.status === 'sent') refreshUsageSoon();
   if ((u.state === 'done' || u.state === 'cancelled') && S.runSource === 'drafts') { D.stale = true; }
   if (u.state === 'done' && !S._notified && !u.batchId) { S._notified = true; new Notification('Letterhead', { body: `Finished. ${u.stats.sent} sent, ${u.stats.failed} failed.`, silent: true }); }
 });
 lh.on('campaign:log', addLog);
-setInterval(() => { if (S.run && S.tab === 'send') tickCountdown(); }, 250);
+setInterval(() => { if (!document.hidden && S.run && S.tab === 'send' && S.run.state === 'waiting') tickCountdown(); }, 1000);
 
 $('#s-start').addEventListener('click', async () => {
   const isD = S.source === 'drafts';
@@ -788,7 +789,7 @@ function batchHtml(b) {
   return `<div class="card batch ${live ? 'live' : ''} ${b.status === 'missed' ? 'missed' : ''} ${fin ? 'finished' : ''}" id="batch-${b.id}">
     <div class="cal"><span class="m">${esc(month)}</span><span class="d">${z.d}</span><span class="t">${esc(fmtClock(b.scheduledAt, tz))}</span></div>
     <div class="b-main"><div class="b-name">${esc(b.name)} <span class="bp ${b.status}">${STATUS_LABEL[b.status] || b.status}</span></div>
-      <div class="b-meta"><span>${b.kind === 'drafts' ? 'Drafts' : 'Mail merge'}</span><span class="sep">/</span><span>${batchCount(b)}</span><span class="sep">/</span><span>${esc(paceText(b))}</span>${tz !== SYS_TZ ? `<span class="sep">/</span><span>${esc(tzAbbr(b.scheduledAt, tz))}</span>` : ''}</div>
+      <div class="b-meta"><span>${b.kind === 'drafts' ? 'Drafts' : 'Mail merge'}</span><span class="sep">/</span><span>${batchCount(b)}</span><span class="sep">/</span><span>${esc(paceText(b))}</span>${tz !== SYS_TZ ? `<span class="sep">/</span><span>${esc(tzAbbr(b.scheduledAt, tz))}</span>` : ''}${b.lidClosed ? '<span class="sep">/</span><span>Lid closed allowed</span>' : ''}</div>
       <div class="b-sub ${subK}">${sub}</div>${bar}
       <div class="b-acts">${acts.join('')}</div></div>
     <div class="b-right">${right}</div></div>`;
@@ -808,8 +809,19 @@ function renderSchedule() {
 function tickSchedule() {
   $$('[data-until]').forEach(el => { const t = Number(el.dataset.until); el.textContent = fmtUntil(t - Date.now()); });
 }
-setInterval(() => { if (S.tab === 'schedule') tickSchedule(); }, 1000);
-lh.on('batches:update', list => { S.batches = list; if (S.tab === 'schedule') renderSchedule(); else renderNavSched(); renderMissed(); refreshUsage(); });
+setInterval(() => { if (!document.hidden && S.tab === 'schedule') tickSchedule(); }, 1000);
+lh.on('batches:update', list => { S.batches = list; if (S.tab === 'schedule') renderSchedule(); else renderNavSched(); renderMissed(); refreshUsageSoon(); });
+// the window was hidden or minimized and skipped live updates: catch up in one go
+lh.on('app:resync', async x => {
+  S.batches = await lh.batches.list() || [];
+  const s = await lh.campaign.snapshot(); if (s) { S.run = s; S.runSource = s.source; S._notified = true; if (s.source === 'drafts') D.stale = true; }
+  $('#t-log').innerHTML = ''; for (const l of (x && x.log) || []) addLog(l);
+  if (S.tab === 'schedule') renderSchedule(); else renderNavSched();
+  if (S.tab === 'send') renderSend();
+  $('#nav-send-pulse').classList.toggle('on', !!(S.run && ['running', 'waiting'].includes(S.run.state)));
+  renderMissed(); refreshUsage();
+  S.power = await lh.power.status(); renderAwake();
+});
 $('#view-schedule').addEventListener('click', async e => {
   const btn = e.target.closest('[data-bact]'); if (!btn) return;
   const id = btn.dataset.id, act = btn.dataset.bact, b = S.batches.find(x => x.id === id);
@@ -827,6 +839,7 @@ $('#view-schedule').addEventListener('click', async e => {
   if (act === 'del') { if (!confirm(`Delete "${b.name}" from the list? Its results go with it.`)) return; show(await lh.batches.remove(id)); }
 });
 $('#b-new').addEventListener('click', () => openEditor());
+$('#be-lid').addEventListener('change', e => $('#be-lid-warn').classList.toggle('hidden', !e.target.checked));
 
 /* ---------------- batch editor ---------------- */
 let E = null;
@@ -858,6 +871,7 @@ async function openEditor(id, opts = {}) {
   $('#be-tz').innerHTML = TZ_CHOICES().map(tz => `<option value="${tz}">${esc(tzLong(now, tz))}${tz === 'UTC' ? '' : ', ' + esc(tz.split('/').pop().replace(/_/g, ' '))}${tz === SYS_TZ ? ' (this Mac)' : ''}</option>`).join('');
   $('#be-tz').value = E.tz; $('#be-date').value = z.date; $('#be-time').value = z.time;
   $('#be-every').value = E.every; $('#be-unit').value = E.unit; $('#be-jitter').value = E.jitter;
+  $('#be-lid').checked = !!(b && b.lidClosed); $('#be-lid-warn').classList.toggle('hidden', !$('#be-lid').checked);
   $('#be-err').classList.add('hidden');
   renderEditor();
   $('#b-veil').classList.remove('hidden');
@@ -927,7 +941,7 @@ $('#b-sheet').addEventListener('submit', async e => {
   const content = E.kind === 'drafts' ? E.drafts : E.merge;
   if (E.kind === 'merge' && (!content || !content.recipients.length || !String(content.subject || '').trim() || !String(content.body || '').trim())) return err('This batch needs recipients and a finished letter.');
   if (E.kind === 'drafts' && (!content || !content.items.length)) return err('Select at least one draft on the Drafts tab.');
-  const r = await lh.batches.save({ id: E.id, name: $('#be-name').value.trim() || $('#be-name').placeholder, kind: E.kind, merge: E.kind === 'merge' ? content : null, drafts: E.kind === 'drafts' ? content : null, scheduledAt: at, tz, mode: E.mode, intervalMs: editorIntervalMs(), jitterPct: Math.min(90, Math.max(0, Number($('#be-jitter').value) || 0)) });
+  const r = await lh.batches.save({ id: E.id, name: $('#be-name').value.trim() || $('#be-name').placeholder, kind: E.kind, merge: E.kind === 'merge' ? content : null, drafts: E.kind === 'drafts' ? content : null, scheduledAt: at, tz, mode: E.mode, intervalMs: editorIntervalMs(), jitterPct: Math.min(90, Math.max(0, Number($('#be-jitter').value) || 0)), lidClosed: $('#be-lid').checked });
   if (!r.ok) return err(r.error);
   closeEditor(); toast(`Scheduled for ${fmtAt(at, tz)}`);
   S.missed.delete(r.value.id);
@@ -960,33 +974,26 @@ $('#m-list').addEventListener('click', async e => {
 function renderAwake() {
   const p = S.power || {}, chip = $('#awake-chip');
   const lidOn = p.lid === 'on', stale = p.stale || (p.sleepDisabled && p.lid !== 'on');
-  chip.classList.toggle('hidden', !(p.awake || lidOn || stale));
-  chip.classList.toggle('lid', lidOn); chip.classList.toggle('warn', !!stale && !lidOn);
-  $('#awake-text').textContent = lidOn ? 'Awake with the lid closed' : stale ? 'Sleep is still turned off' : 'Keeping your Mac awake';
+  chip.classList.toggle('hidden', !(p.awake || lidOn || stale || p.guard));
+  chip.classList.toggle('lid', lidOn); chip.classList.toggle('warn', !!(stale && !lidOn || p.guard));
+  $('#awake-text').textContent = p.guard ? (p.guard.code === 'thermal' ? 'Paused, Mac is hot' : 'Paused, low battery') : lidOn ? 'Awake with the lid closed' : stale ? 'Sleep is still turned off' : 'Keeping your Mac awake';
   if (!$('#set-keepAwake')) return;
-  $('#set-keepAwake').checked = !!S.settings.keepAwake; $('#set-keepAwakeLid').checked = !!S.settings.keepAwakeLid;
-  $('#set-keepAwakeLid').disabled = !S.settings.keepAwake; $('#lid-row').style.opacity = S.settings.keepAwake ? 1 : .5;
-  $('#lead-row').classList.toggle('hidden', !(S.settings.keepAwake && S.settings.keepAwakeLid));
-  $$('#set-lidLead button').forEach(b => b.classList.toggle('on', Number(b.dataset.lead) === Number(S.settings.lidLeadMin || 0)));
+  $('#set-keepAwake').checked = !!S.settings.keepAwake;
   $('#set-openAtLogin').checked = !!S.info.openAtLogin;
   const box = $('#lid-state'); let html = '', cls = '';
   const MOON = '<svg viewBox="0 0 16 16"><path d="M10.8 2.6a5.6 5.6 0 1 0 2.6 8.6A4.6 4.6 0 0 1 10.8 2.6z"/></svg>', WARN = '<svg viewBox="0 0 16 16"><path d="M8 2.5 14 13H2z"/><path d="M8 6.5v3M8 11.2v.1"/></svg>';
-  if (lidOn) { cls = 'on'; html = MOON + '<span><b>Lid-closed mode is on.</b> Your Mac will not sleep, even with the lid shut. Sleep turns back on by itself when the queue finishes or Letterhead quits.</span>'; }
-  else if (p.lid === 'asking') html = MOON + '<span>Waiting for your Mac password…</span>';
+  if (p.guard) { cls = 'warn'; html = WARN + `<span>${esc(p.guard.reason)}</span>`; }
+  else if (lidOn) { cls = 'on'; html = MOON + '<span><b>Lid-closed mode is on for this batch.</b> Your Mac will not sleep, even with the lid shut. Normal sleep comes back by itself when the batch ends or Letterhead quits.</span>'; }
+  else if (p.lid === 'asking') html = MOON + '<span>Waiting for your Mac password to keep sending with the lid closed…</span>';
   else if (stale) { cls = 'warn'; html = WARN + '<span>Your Mac is still set to never sleep, likely left over from an earlier session. Click <b>Restore normal sleep</b> to turn sleep back on.</span>'; }
-  else if ((p.lid === 'declined' || p.lid === 'error') && S.settings.keepAwakeLid) { cls = 'warn'; html = WARN + `<span>${esc(p.lidError || 'Could not turn on lid-closed mode.')} Turn the switch off and on to try again.</span>`; }
-  else if (p.lid === 'unsupported' && S.settings.keepAwakeLid) { cls = 'warn'; html = WARN + '<span>Lid-closed mode works on a Mac only.</span>'; }
-  else if (S.settings.keepAwake && S.settings.keepAwakeLid) html = MOON + `<span>Lid-closed mode turns on ${Number(S.settings.lidLeadMin || 0) ? '15 minutes before the next batch' : 'as soon as a batch is scheduled'}, after one password prompt.</span>`;
+  else if (p.lid === 'declined' || p.lid === 'error') { cls = 'warn'; html = WARN + `<span>${esc(p.lidError || 'Could not turn on lid-closed mode.')} The batch still sends while the lid is open.</span>`; }
   box.className = 'lid-state ' + cls; box.innerHTML = html; box.classList.toggle('hidden', !html);
-  $('#lid-warm').classList.toggle('hidden', !(S.settings.keepAwake && S.settings.keepAwakeLid));
 }
-lh.on('power:status', st => { S.power = st; renderAwake(); });
+lh.on('power:status', st => { S.power = { ...(S.power || {}), ...st }; renderAwake(); });
 async function saveSetting(k, v) { S.settings[k] = v; await lh.settings.save({ [k]: v }); renderAwake(); }
 $('#set-keepAwake').addEventListener('change', e => saveSetting('keepAwake', e.target.checked));
-$('#set-keepAwakeLid').addEventListener('change', e => saveSetting('keepAwakeLid', e.target.checked));
-$('#set-lidLead').addEventListener('click', e => { const b = e.target.closest('button'); if (b) saveSetting('lidLeadMin', Number(b.dataset.lead)); });
 $('#set-openAtLogin').addEventListener('change', async e => { S.info.openAtLogin = await lh.app.setOpenAtLogin(e.target.checked); if (e.target.checked && !S.info.openAtLogin && S.info.platform === 'darwin') toast('macOS did not allow it. Add Letterhead in System Settings > General > Login Items.', true); renderAwake(); });
-$('#pw-restore').addEventListener('click', async () => { const r = await lh.power.restore(); if (r && r.ok) { if (S.settings.keepAwakeLid) await saveSetting('keepAwakeLid', false); toast('Normal sleep restored'); } else if (r) toast(r.error || 'Could not restore sleep', true); });
+$('#pw-restore').addEventListener('click', async () => { const r = await lh.power.restore(); if (r && r.ok) toast('Normal sleep restored'); else if (r) toast(r.error || 'Could not restore sleep', true); S.power = await lh.power.status(); renderAwake(); });
 $('#awake-chip').addEventListener('click', () => go('schedule'));
 
 /* ---------------- updates ---------------- */
@@ -1021,7 +1028,7 @@ $('#set-installOnQuit').addEventListener('change', e => saveSetting('installOnQu
 /* ---------------- menu ---------------- */
 lh.on('menu', m => {
   if (m.tab) return go(m.tab);
-  ({ import: importCsv, attach: () => { go('letter'); attach(); }, export: exportCsv, test: sendTest, toggle: togglePause, retry, newBatch: () => { go('schedule'); openEditor(); }, compose: () => window.LH2 && LH2.compose(m.mailto ? { mailto: m.mailto } : {}) }[m.action] || (() => {}))();
+  ({ import: importCsv, attach: () => { go('letter'); attach(); }, export: exportCsv, test: sendTest, toggle: togglePause, retry, newBatch: () => { go('schedule'); openEditor(); } }[m.action] || (() => {}))();
 });
 
 /* ---------------- boot ---------------- */
@@ -1043,7 +1050,7 @@ lh.on('menu', m => {
   if (S.run && S.run.source) S.runSource = S.run.source;
   for (const [what, fn] of [['account', () => { fillAccount(S.account); renderAcctChip(); }], ['recipients', () => { renderRecipients(); renderNavCount(); }]]) { try { fn(); } catch (e) { lh.diag.report('startup ' + what, e.stack || e.message); S.bootErrors = (S.bootErrors || 0) + 1; } }
   await safe('usage', refreshUsage(), null);
-  const start = new URLSearchParams(location.search).get('tab') || (S.account && S.account.hasPassword ? (S.settings.mailEnabled === false ? (S.recipients.length ? 'letter' : 'recipients') : 'mail') : 'account');
+  const start = new URLSearchParams(location.search).get('tab') || (S.account && S.account.hasPassword ? (S.batches.some(b => ['sending', 'paused', 'scheduled', 'queued', 'missed'].includes(b.status)) ? 'schedule' : S.recipients.length ? 'letter' : 'recipients') : 'account');
   try { go(start); } catch (e) { lh.diag.report('startup screen ' + start, e.stack || e.message); try { go('settings'); } catch (e2) { /* nothing else to try */ } }
   for (const fn of [renderNavSched, renderAwake, renderUpdate]) { try { fn(); } catch (e) { lh.diag.report('startup ' + fn.name, e.stack || e.message); } }
   if (S.bootErrors) toast('Part of Letterhead did not load. Settings > Help > View error log has the details.', true);

@@ -1,8 +1,8 @@
 # Letterhead
 
-Your email on your Mac: a full inbox you can use instead of the Gmail website, a mail merge for outreach, and an optional assistant that drafts replies in your own writing style.
+Send email from your own account on your Mac: a mail merge for outreach, sending drafts you already wrote, and batches scheduled for later, one at a time on an interval or all at once.
 
-Letterhead 2 keeps everything from 1.x (mail merge, sending your drafts, scheduled batches, the daily cap, keeping your Mac awake and automatic updates) and adds **Mail** and the **Reply assistant**.
+Letterhead 2.2 goes back to that. The inbox and the reply assistant from 2.0 and 2.1 are gone, and so is their local data (see **Where your data lives**). Batches, history, your account and settings stay as they were.
 
 ## Installing (recommended: one line in Terminal)
 
@@ -54,45 +54,6 @@ To stop Letterhead from using your account, delete the App Password on that same
 
 Keep Letterhead open while it sends. Closing the window is fine: on a Mac, Letterhead keeps running in the background (click its Dock icon to bring the window back). If you quit or your Mac goes to sleep, sending stops. Anything already sent stays sent.
 
-## Mail
-
-Click **Inbox** in the sidebar. Letterhead uses the account you already set up (the same App Password) over IMAP and SMTP.
-
-- **Folders and labels**: Inbox, Starred, Sent, Drafts, All Mail, Spam, Trash and your Gmail labels.
-- **Live**: new mail shows up as it arrives (IMAP IDLE), with a notification for personal mail and an unread count on the Dock icon. It also checks every 3 minutes in case the live connection drops.
-- **Conversations**: messages are grouped the way Gmail groups them. Older messages are folded; click one to open it.
-- **Safe reading**: emails are shown in a locked down frame where scripts cannot run. Remote images are blocked until you click **Show images**, because they can tell a sender you opened the email. **Always from this sender** remembers your choice.
-- **Attachments**: **Open** or **Save** each one.
-- **Search** uses Gmail's own search, so `from:`, `to:`, `subject:`, `has:attachment` and `older_than:7d` work.
-- **Actions**: archive, delete, spam, mark unread, star, move and label.
-- **Write**: **Compose** (or press `c`), **Reply**, **Reply all** and **Forward**, with bold, italics, links, lists, attachments and your signature (set it in **Settings**). Drafts save to your Drafts folder every few seconds. **Command Return** sends, and you get a few seconds to **Undo**.
-- **Offline**: recent mail is kept in a local database on your Mac, so it opens fast and you can read it without internet.
-
-Keyboard shortcuts (press `?` for the list): `j`/`k` next and previous, `o` open, `u` back, `e` archive, `#` delete, `!` spam, `s` star, `Shift I`/`Shift U` read/unread, `x` select, `v` move, `l` label, `r` reply, `a` reply all, `f` forward, `c` compose, `/` search, `g` then `i`/`t`/`d` for Inbox, Sent, Drafts.
-
-## Reply assistant (optional, off until you turn it on)
-
-The assistant learns how you write from your Sent mail and drafts replies that sound like you. You read every draft before it goes, unless you set up automatic replies.
-
-**Setting it up (about two minutes)**
-
-1. Get a free Gemini API key: open [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey), sign in with your Google account and click **Create API key**. Copy it.
-2. In Letterhead, open **Assistant**, turn on **Use the reply assistant**, paste the key and click **Save**, then **Test the key**. macOS may ask about Letterhead's Keychain item; click **Always Allow**.
-3. Under **Learn your style**, choose how many sent emails to read (500 to 2,000) and click **Build my style profile**. Reading and measuring happens on your Mac. Then a sample of up to 45 of your emails goes to Gemini, in small batches, to describe your tone. You can edit the result.
-4. Add a few facts in **About you** (school, grade, when you are free). When the assistant needs a fact it does not have, it writes a [placeholder] in brackets instead of guessing.
-
-**Using it**
-
-- In any conversation, click **Draft reply**. Then **Send**, **Edit in composer**, **Regenerate**, **Shorter** or **More formal**.
-- New personal mail gets a draft in the background (up to 40 a day by default). They are listed in **Suggested replies**.
-- OpenAI and Anthropic keys work too: pick the provider on the Assistant page.
-
-**Automatic replies** are off by default. When you turn them on, they only apply to rules you write (certain senders like `@stanford.edu`, or certain labels). Each reply waits in **Suggested replies** for the time you pick (10 minutes to 8 hours) so you can **Stop** or edit it, and there is a daily limit. They are never sent to no-reply addresses, mailing lists, newsletters, automated or bulk mail, out-of-office replies, emails to more than 5 people, mail older than a day, or the same person twice in 24 hours. They stop if you reply yourself first. Every automatic reply, and every one that was skipped or stopped, is in the log. They carry an `Auto-Submitted: auto-replied` header so other mail systems do not answer them.
-
-**Privacy**: to write a reply, Letterhead sends the email you are answering, earlier messages in that conversation, a few similar past replies of yours and your style notes to the provider you chose, with your own key. Google's Gemini API terms say that with a free key, Google uses what you send to improve its products and human reviewers may read it after disconnecting it from your account; with billing turned on, it does not. For anything private, write that reply yourself. The Sent mail index, style profile and drafts stay on your Mac. Your key is encrypted with your macOS Keychain and never leaves your Mac except in requests to that provider.
-
-**Free tier limits**: Gemini's free keys allow only a handful of requests per minute. Letterhead uses `gemini-3.1-flash-lite` first and switches to `gemini-3.5-flash` when one is busy or out of quota, waits and retries when Google asks it to, and builds your style profile slowly so it stays inside the limit. If drafts say the quota is used up, wait a minute or add billing to your key.
-
 ## Sending drafts you already wrote
 
 If you write your emails in Gmail and leave them as drafts, Letterhead can send them for you on a schedule.
@@ -131,12 +92,14 @@ How batches behave:
 
 ## Keeping your Mac awake
 
-A sleeping Mac cannot send. On the **Schedule** tab:
+A sleeping Mac cannot send.
 
-- **Keep Mac awake while batches wait** keeps the Mac from going to sleep on its own from the moment a batch is scheduled until the queue is empty (it uses the built in `caffeinate` tool). The screen can still turn off. A send in progress always keeps the Mac awake, even with this off.
-- **Even with the lid closed** also stops sleep when you close the lid. macOS only allows this for an administrator, so Letterhead asks for your Mac password once (a normal macOS password box). It then runs `pmset -a disablesleep 1`, along with a small helper that sets it back to `0` as soon as the queue is done, you turn the switch off, or Letterhead quits or crashes. Choose whether the password box appears **When I schedule** (the default, so you are there to type it) or **15 min before** the next batch (only useful if you will be at the Mac then). A moon badge in the sidebar shows while lid closed mode is on.
-- With the lid closed, keep the Mac **plugged in** and **out of a bag or sleeve**. It keeps running and can get warm.
-- If sleep ever seems stuck off, click **Restore normal sleep** (also in the **Sending** menu). It runs `pmset -a disablesleep 0`. Letterhead also checks at launch and warns you if sleep is still turned off. The same thing by hand in Terminal: `sudo pmset -a disablesleep 0`.
+- While a batch is **sending**, Letterhead keeps the Mac from going to sleep on its own (Electron's `prevent-app-suspension`). The **screen still turns off** as usual. Nothing is kept awake while a batch is paused or once it ends.
+- **Also stay awake while batches wait** (Schedule tab, off by default) does the same from the moment a batch is scheduled until it starts. The screen still turns off.
+- **Keep sending with the lid closed** is a per batch option in the batch editor, off by default. macOS only allows this for an administrator, so Letterhead asks for your Mac password (a normal macOS password box) about 15 minutes before that batch starts, or when you press **Send now**. It runs `pmset -a disablesleep 1` with a small helper that sets it back to `0` as soon as the batch ends, Letterhead quits or crashes. If a restart ever leaves it on, Letterhead turns it back off the next time it opens.
+- With the lid closed, keep the Mac **plugged in** and **out of a bag or sleeve**.
+- **Heat and battery guard**: if macOS reports the Mac is running hot (thermal state serious or critical), or the battery is under 20% and not charging, sending pauses and nothing is kept awake. It picks up again by itself once that clears.
+- If sleep ever seems stuck off, click **Restore normal sleep** (also in the **Sending** menu). It runs `pmset -a disablesleep 0`. The same thing by hand in Terminal: `sudo pmset -a disablesleep 0`.
 
 ## Updates
 
@@ -168,4 +131,4 @@ When Letterhead updates itself, it swaps in the new copy, starts it once in a hi
 
 ## Where your data lives
 
-Everything stays on your Mac in `~/Library/Application Support/Letterhead`. Your password and AI key are encrypted using the macOS Keychain. The mail cache is `mail.sqlite` and the `mailcache` folder; your style profile is `style.json`. Letterhead talks only to the mail server you set up, the AI provider you chose (only when the assistant is on), plus github.com to check for updates (turn off **Download updates automatically** in Settings to stop that; **Check now** still works). Scheduled batches are in `batches.json` in the same folder. macOS may ask once whether Letterhead can use its Keychain item; click **Always Allow**.
+Everything stays on your Mac in `~/Library/Application Support/Letterhead`. Your password is encrypted using the macOS Keychain. Version 2.2 deletes what the old inbox and assistant left there (`mail.sqlite`, the `mailcache` folder, `style.json` and the saved AI key in `aikeys.json`) the first time it opens, and keeps `batches.json`, `account.json`, `usage.json`, `draft.json` and the logs. Letterhead talks only to the mail server you set up, plus github.com to check for updates (turn off **Download updates automatically** in Settings to stop that; **Check now** still works). Scheduled batches are in `batches.json` in the same folder (with a small `batches.json.journal` while a batch sends). macOS may ask once whether Letterhead can use its Keychain item; click **Always Allow**.

@@ -7,7 +7,6 @@ const fs = require('fs');
 const path = require('path');
 const engine = require('./engine');
 const drafts = require('./drafts');
-const wireMail = require('./mailwire');
 const diag = require('./diag');
 const os = require('os');
 
@@ -81,9 +80,25 @@ const usage = {
 
 
 const FEED_URL = process.env.LETTERHEAD_UPDATE_FEED || 'https://github.com/BigBhubbha/letterhead-mac/releases/latest/download/latest.json';
-let scheduler = null, updater = null, power = null, quitting = false, wired = null;
+let scheduler = null, updater = null, power = null, quitting = false;
 
-function send(ch, payload) { if (win && !win.isDestroyed()) win.webContents.send(ch, payload); }
+// Live progress only goes to a window someone can see. While it is hidden or minimized the
+// updates are dropped and the window catches up in one go when it comes back (app:resync), so a
+// long batch does not keep waking the renderer to redraw a screen nobody is looking at.
+const LIVE_CHANNELS = new Set(['campaign:update', 'campaign:log', 'batches:update', 'power:status']);
+const winVisible = () => !!(win && !win.isDestroyed() && win.isVisible() && !win.isMinimized());
+let resyncDue = false;
+const logRing = [];
+function send(ch, payload) {
+  if (ch === 'campaign:log') { logRing.push(payload); if (logRing.length > 300) logRing.shift(); }
+  if (!win || win.isDestroyed()) return;
+  if (LIVE_CHANNELS.has(ch) && !winVisible()) { resyncDue = true; return; }
+  win.webContents.send(ch, payload);
+}
+function resync() {
+  if (!resyncDue || !winVisible()) return; resyncDue = false;
+  win.webContents.send('app:resync', { log: logRing.slice(-200) });
+}
 const settings = () => readJson('settings.json', {}) || {};
 const setting = (k, d) => { const v = settings()[k]; return v === undefined ? d : v; };
 
@@ -108,8 +123,9 @@ function createWindow() {
   const showOnce = () => { if (win && !win.isDestroyed() && !win.isVisible() && !app.getLoginItemSettings().wasOpenedAsHidden) win.show(); };
   win.once('ready-to-show', showOnce);
   win.webContents.once('did-finish-load', () => setTimeout(showOnce, 1500));
-  if (process.env.LETTERHEAD_HARNESS) require(process.env.LETTERHEAD_HARNESS)(win, { nativeTheme, getScheduler: () => scheduler, getUpdater: () => updater, getPower: () => power, getWired: () => wired });
-  win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/i.test(url)) shell.openExternal(url); else if (/^mailto:/i.test(url)) send('menu', { action: 'compose', mailto: url }); return { action: 'deny' }; });
+  if (process.env.LETTERHEAD_HARNESS) require(process.env.LETTERHEAD_HARNESS)(win, { nativeTheme, getScheduler: () => scheduler, getUpdater: () => updater, getPower: () => power, guardState: () => guardState });
+  for (const ev of ['show', 'restore', 'focus']) win.on(ev, () => setTimeout(resync, 50));
+  win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/i.test(url)) shell.openExternal(url); return { action: 'deny' }; });
   win.webContents.on('will-navigate', (e, url) => { if (!url.startsWith('file:')) { e.preventDefault(); shell.openExternal(url); } });
   // On a Mac, closing the window keeps Letterhead running in the background so schedules keep working.
   win.on('close', e => {
@@ -124,8 +140,7 @@ function buildMenu() {
   const tpl = [
     ...(isMac ? [{ label: 'Letterhead', submenu: [{ role: 'about' }, checkUpdates, { type: 'separator' }, { label: 'Settings…', accelerator: 'Cmd+,', click: go('settings') }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] }] : []),
     { label: 'File', submenu: [
-      { label: 'New Email', accelerator: 'CmdOrCtrl+N', click: () => { showWindow(); send('menu', { action: 'compose' }); } },
-      { label: 'New Batch…', accelerator: 'CmdOrCtrl+Shift+N', click: () => { showWindow(); send('menu', { action: 'newBatch' }); } },
+      { label: 'New Batch…', accelerator: 'CmdOrCtrl+N', click: () => { showWindow(); send('menu', { action: 'newBatch' }); } },
       { type: 'separator' },
       { label: 'Import Recipients CSV…', accelerator: 'CmdOrCtrl+O', click: () => send('menu', { action: 'import' }) },
       { label: 'Attach File…', accelerator: 'CmdOrCtrl+Shift+A', click: () => send('menu', { action: 'attach' }) },
@@ -134,9 +149,6 @@ function buildMenu() {
       { type: 'separator' }, isMac ? { role: 'close' } : { role: 'quit' }] },
     { role: 'editMenu' },
     { label: 'View', submenu: [
-      { label: 'Mail', accelerator: 'CmdOrCtrl+0', click: go('mail') },
-      { label: 'Suggested Replies', accelerator: 'CmdOrCtrl+Shift+R', click: go('assist') },
-      { type: 'separator' },
       { label: 'Account', accelerator: 'CmdOrCtrl+1', click: go('account') },
       { label: 'Recipients', accelerator: 'CmdOrCtrl+2', click: go('recipients') },
       { label: 'Letter', accelerator: 'CmdOrCtrl+3', click: go('letter') },
@@ -158,22 +170,78 @@ function buildMenu() {
 }
 
 // ---------- keep awake ----------
+// Awake only while a batch is actually sending (not while paused, not while it waits for its
+// start time unless "Keep Mac awake while batches wait" is on). The display is never held on.
+// Lid closed is per batch, opt in, and only while that batch sends (or its start is 15 minutes away,
+// so the password prompt shows up while you are likely still at the Mac).
+const LID_LEAD_MS = 15 * 60000;
+let guardState = { thermal: 'nominal', battery: null };
+function guard() {
+  if (['serious', 'critical'].includes(guardState.thermal)) return { code: 'thermal', reason: 'Paused because your Mac is running hot. Sending picks up again by itself once it cools down.' };
+  const b = guardState.battery;
+  if (b && !b.ac && b.pct < 20) return { code: 'battery', reason: `Paused because the battery is at ${b.pct}%. Plug in your Mac and sending picks up again by itself.` };
+  return null;
+}
 function powerWanted() {
-  const live = scheduler && scheduler.busy();
-  const want = setting('keepAwake', false);
-  const lidSetting = setting('keepAwakeLid', false);
-  const next = scheduler ? scheduler.nextDue() : null;
-  const queued = scheduler && scheduler.batches.some(b => ['queued', 'sending', 'paused'].includes(b.status));
-  const lead = setting('lidLeadMin', 0); // 0 = from the moment a batch is scheduled
-  const soon = next != null && (lead === 0 || next - Date.now() <= lead * 60000);
-  const scheduledWork = next != null || queued;
+  const c = scheduler && scheduler.active;
+  const sending = !!(c && ['running', 'waiting'].includes(c.state));
+  if (guard()) return { wantAwake: false, wantLid: false };
+  const activeBatch = scheduler && scheduler.activeBatchId ? scheduler.get(scheduler.activeBatchId) : null;
+  const waiting = scheduler && scheduler.batches.some(b => b.status === 'scheduled' || b.status === 'queued');
+  const now = Date.now();
+  const lidSoon = scheduler && scheduler.batches.some(b => b.lidClosed && b.status === 'scheduled' && b.scheduledAt - now <= LID_LEAD_MS && b.scheduledAt - now > -60000);
+  const lidNow = sending && !!(activeBatch && activeBatch.lidClosed);
   return {
-    wantAwake: !!live || (want && scheduledWork),
-    wantLid: !!(want && lidSetting && (live || queued || soon)),
+    wantAwake: sending || lidSoon || (setting('keepAwake', false) && !!waiting),
+    wantLid: lidNow || !!lidSoon,
   };
 }
-let powerT = null;
-function refreshPower() { clearTimeout(powerT); powerT = setTimeout(() => power && power.update({ ...powerWanted(), blockerApi: powerSaveBlocker }).catch(() => {}), 200); }
+let powerT = null, powerChain = Promise.resolve();
+function refreshPower() {
+  clearTimeout(powerT);
+  powerT = setTimeout(() => { powerChain = powerChain.then(() => power && power.update({ ...powerWanted(), blockerApi: powerSaveBlocker })).catch(() => {}); }, 200);
+}
+// thermal and battery guard
+function applyGuard() {
+  const g = guard(), c = scheduler && scheduler.active;
+  if (g && c && ['running', 'waiting'].includes(c.state)) { c.pause(g.reason, g.code); diag.log.warn('guard', g.reason); notify('Letterhead paused sending', g.reason); }
+  if (scheduler) scheduler.tick(); // resumes a batch paused by the guard once it is clear
+  refreshPower();
+}
+let battT = null;
+async function pollBattery() {
+  clearTimeout(battT); battT = null;
+  const c = scheduler && scheduler.active;
+  const live = !!(c && ['running', 'waiting', 'paused'].includes(c.state));
+  if (!live || !power) { guardState.battery = null; return; }
+  const before = JSON.stringify(guardState.battery);
+  try { guardState.battery = await power.readBattery(); } catch (e) { guardState.battery = null; }
+  if (JSON.stringify(guardState.battery) !== before) applyGuard();
+  battT = setTimeout(pollBattery, 60000); if (battT.unref) battT.unref();
+}
+
+// ---------- 2.2 removed the inbox, the reply assistant and its index ----------
+// Their data is deleted once: the mail cache, the SQLite index, the style profile and the AI key.
+// batches.json (history), account.json (login), usage.json, draft.json and the log are kept.
+const LEGACY_FILES = ['mail.sqlite', 'mail.sqlite.tmp', 'mailcache', 'style.json', 'aikeys.json'];
+const LEGACY_SETTINGS = ['mailEnabled', 'notifyMail', 'dockBadge', 'showImages', 'signature', 'undoSeconds', 'aiEnabled', 'aiProvider', 'aiModels', 'aboutMe', 'indexWindow',
+  'autoDraft', 'autoDraftDaily', 'autoReply', 'keepAwakeLid', 'lidLeadMin', 'mailFolder', 'mailDensity'];
+function cleanupLegacyMail() {
+  const removed = [];
+  for (const n of LEGACY_FILES) {
+    const f = file(n); let st; try { st = fs.statSync(f); } catch (e) { continue; }
+    let size = st.size; if (st.isDirectory()) { try { size = fs.readdirSync(f).reduce((t, x) => { try { return t + fs.statSync(path.join(f, x)).size; } catch (e) { return t; } }, 0); } catch (e) {} }
+    try { fs.rmSync(f, { recursive: true, force: true }); removed.push(`${n} (${Math.round(size / 1024)} KB)`); } catch (e) { diag.log.warn('cleanup', `could not remove ${n}: ${e.message}`); }
+  }
+  const st = readJson('settings.json', null);
+  if (st) {
+    const gone = LEGACY_SETTINGS.filter(k => k in st);
+    if (gone.length || !st._legacyCleaned) { for (const k of gone) delete st[k]; st._legacyCleaned = st._legacyCleaned || new Date().toISOString(); writeJson('settings.json', st); }
+  }
+  try { if (app.setBadgeCount) app.setBadgeCount(0); } catch (e) {}
+  if (removed.length) diag.log.info('cleanup', 'removed old mail and assistant data: ' + removed.join(', '));
+  return removed;
+}
 
 // ---------- IPC ----------
 ipcMain.handle('account:get', () => {
@@ -182,14 +250,14 @@ ipcMain.handle('account:get', () => {
   const full = loadAccount(true); if (full && full.keychainError) a.keychainError = true;
   return a;
 });
-ipcMain.handle('account:save', (e, a) => { const r = saveAccount(a); if (wired) wired.onAccount(); return r; });
-ipcMain.handle('account:clear', () => { try { fs.unlinkSync(file('account.json')); } catch (e) {} if (wired) wired.mail.stop().catch(() => {}); return null; });
+ipcMain.handle('account:save', (e, a) => saveAccount(a));
+ipcMain.handle('account:clear', () => { try { fs.unlinkSync(file('account.json')); } catch (e) {} return null; });
 ipcMain.handle('account:verify', (e, a) => engine.verifyAccount(accountForSend(a)));
 ipcMain.handle('draft:get', () => readJson('draft.json', null));
 ipcMain.handle('draft:save', (e, d) => { writeJson('draft.json', d); return true; });
 ipcMain.handle('settings:get', () => readJson('settings.json', null));
 ipcMain.handle('settings:save', (e, s) => {
-  writeJson('settings.json', { ...settings(), ...s }); refreshPower(); if (wired) wired.onSettings(s);
+  writeJson('settings.json', { ...settings(), ...s }); refreshPower();
   if (updater && 'autoUpdate' in s) { updater.stop(); if (s.autoUpdate && (app.isPackaged || process.env.LETTERHEAD_UPDATE_FEED)) updater.start(); }
   return true;
 });
@@ -227,7 +295,7 @@ const cur = () => scheduler.current();
 ipcMain.handle('campaign:pause', () => { const c = scheduler.active; c && c.pause('user'); return true; });
 ipcMain.handle('campaign:resume', () => { const c = scheduler.active; c && c.resume(); return true; });
 ipcMain.handle('campaign:cancel', () => { const c = scheduler.active; if (c) { if (scheduler.activeBatchId) scheduler.cancel(scheduler.activeBatchId); else c.cancel(); } return true; });
-ipcMain.handle('campaign:retry', () => { if (scheduler.active) return scheduler.active.retryFailed(); const c = scheduler.last; if (!c) return 0; if (c.o.batchId) return scheduler.retry(c.o.batchId); scheduler.active = c; scheduler.last = null; return c.retryFailed(); });
+ipcMain.handle('campaign:retry', () => { if (scheduler.active) return scheduler.activeBatchId ? scheduler.retry(scheduler.activeBatchId) : scheduler.active.retryFailed(); const c = scheduler.last; if (!c) return 0; if (c.o.batchId) return scheduler.retry(c.o.batchId); scheduler.active = c; scheduler.last = null; return c.retryFailed(); });
 ipcMain.handle('campaign:snapshot', () => scheduler.snapshot());
 ipcMain.handle('campaign:clear', () => scheduler.clearLast());
 const exportTo = async () => {
@@ -277,7 +345,7 @@ function doInstall() {
 }
 
 // power
-ipcMain.handle('power:status', () => power ? power.status() : null);
+ipcMain.handle('power:status', () => power ? { ...power.status(), guard: guard(), thermal: guardState.thermal, battery: guardState.battery } : null);
 ipcMain.handle('power:restore', () => power ? power.restoreNow() : { ok: true });
 
 // Test hook used only by the automated harness.
@@ -300,7 +368,6 @@ ipcMain.handle('diag:copy', async () => {
 async function diagnosticsText() {
   const appPath = updater ? updater.appBundle() : null;
   const inst = updater ? updater.installability() : null;
-  let mailStatus = null; try { mailStatus = wired ? wired.mail.status() : 'not started'; } catch (e) { mailStatus = 'error: ' + e.message; }
   const acct = loadAccount(false);
   const st = settings();
   const safeSettings = Object.fromEntries(Object.entries(st).filter(([k]) => !/sig|about|key|pass/i.test(k)).map(([k, v]) => [k, typeof v === 'object' ? '[set]' : v]));
@@ -314,9 +381,11 @@ async function diagnosticsText() {
     'Running for': Math.round((Date.now() - startedAt) / 60000) + ' min',
     'Account': acct ? `${acct.preset || 'custom'} ${acct.host}:${acct.port} imap ${acct.imapHost || 'none'} password ${acct.hasPassword ? (acct.encrypted ? 'saved, encrypted' : 'saved, not encrypted') : 'missing'}` : 'none',
     'Keychain encryption': (() => { try { return safeStorage.isEncryptionAvailable() ? 'available' : 'not available'; } catch (e) { return 'error ' + e.message; } })(),
-    'Mail': mailStatus,
     'Update': updater ? { status: updater.state.status, version: updater.state.version, error: updater.state.error } : 'n/a',
     'Keep awake': power ? power.status() : 'n/a',
+    'Thermal state': guardState.thermal,
+    'Battery': guardState.battery ? `${guardState.battery.pct}%${guardState.battery.ac ? ', plugged in' : ''}` : 'not checked',
+    'Old mail data removed': setting('_legacyCleaned', null) || 'not yet',
     'Batches': scheduler ? scheduler.batches.map(b => b.status).join(', ') || 'none' : 'n/a',
     'Settings': safeSettings,
   });
@@ -330,10 +399,9 @@ if (MODE === 'health') {
     const finish = code => { try { fs.writeFileSync(out, JSON.stringify(res)); } catch (e) { /* the caller times out */ } app.exit(code); };
     setTimeout(() => { res.error = 'timeout'; finish(2); }, 45000);
     try {
-      const { MailDB } = require('./maildb'); const db = await MailDB.open(null); db.close && db.close(); // sql.js wasm loads
       const w = new BrowserWindow({ show: false, webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: false } });
       await w.loadFile(path.join(__dirname, 'renderer', 'index.html'), { query: { health: '1' } });
-      res.dom = await w.webContents.executeJavaScript('!!document.querySelector("#view-mail") && !!document.querySelector("#view-settings")');
+      res.dom = await w.webContents.executeJavaScript('!!document.querySelector("#view-send") && !!document.querySelector("#view-settings")');
       res.ok = !!res.dom; finish(res.ok ? 0 : 1);
     } catch (e) { res.error = e.message; finish(1); }
   });
@@ -345,6 +413,7 @@ app.on('second-instance', () => showWindow());
 app.whenReady().then(async () => {
   nativeTheme.themeSource = 'system';
   buildMenu();
+  cleanupLegacyMail();
   const usageWithCap = usage;
   scheduler = new Scheduler({
     file: file('batches.json'), usage: usageWithCap,
@@ -353,9 +422,12 @@ app.whenReady().then(async () => {
     getSetting: (k, d) => setting(k, d),
     hooksFor: (account, cfg) => drafts.campaignHooks(account, cfg),
     tickMs: Number(process.env.LETTERHEAD_TICK_MS) || 15000,
+    guard,
   });
   scheduler.on('campaign:update', u => {
     send('campaign:update', u); refreshPower();
+    if (!battT && ['running', 'waiting'].includes(u.state)) pollBattery();
+    if (!u.batchId && u.state === 'done' && !winVisible() && u.stats) notify('Letterhead', `Finished. ${u.stats.sent} sent, ${u.stats.failed} failed.`);
     if (pendingRestart && ['done', 'cancelled'].includes(u.state)) setTimeout(() => { if (pendingRestart && !scheduler.busy()) doInstall(); }, 1500);
   });
   scheduler.on('campaign:log', l => send('campaign:log', l));
@@ -379,26 +451,18 @@ app.whenReady().then(async () => {
   if ((app.isPackaged || process.env.LETTERHEAD_UPDATE_FEED) && MODE === 'normal') { if (setting('autoUpdate', true)) updater.start(); }
   updater.confirmLaunch && updater.confirmLaunch();
 
-  try {
-    wired = await wireMail({ app, ipcMain, dialog, shell, safeStorage, Notification, send, settings, setting, saveSettings: p => writeJson('settings.json', { ...settings(), ...p }),
-      accountForSend: () => accountForSend(), usage, getDailyCap: () => Number(setting('cap', 500)) || 0, file, readJson, writeJson, showWindow, getWin: () => win });
-  } catch (e) {
-    diag.log.error('mail wiring failed', e);
-    // answer the mail and assistant calls with a clear error instead of leaving them unregistered
-    const msg = 'Mail could not start: ' + e.message + '. Settings > Help > Copy diagnostics has details.';
-    for (const ch of ['mail:status', 'mail:restart', 'mail:folders', 'mail:threads', 'mail:thread', 'mail:body', 'mail:sync', 'mail:more', 'mail:action', 'mail:search', 'mail:contacts', 'mail:select', 'mail:attachment', 'mail:send', 'mail:saveDraft', 'mail:deleteDraft', 'mail:openLink',
-      'ai:status', 'ai:setKey', 'ai:test', 'style:index', 'style:progress', 'style:profile', 'style:saveProfile', 'style:clear',
-      'assist:draft', 'assist:list', 'assist:candidates', 'assist:suggestion', 'assist:setDraft', 'assist:dismiss', 'assist:hold', 'assist:sendNow', 'assist:autolog', 'assist:queueBacklog']) {
-      try { ipcMain.handle(ch, () => ({ ok: false, error: msg })); } catch (er) { /* already registered before the failure */ }
-    }
-  }
   createWindow();
   win.webContents.on('render-process-gone', (ev, d) => { diag.log.error('renderer gone', d.reason + ' ' + d.exitCode); if (d.reason !== 'clean-exit' && !quitting) setTimeout(() => { if (win && !win.isDestroyed()) win.reload(); }, 500); });
   win.webContents.on('unresponsive', () => diag.log.warn('window', 'not responding'));
   win.webContents.on('console-message', (ev, level, message, line, src) => { if (level >= 3 && !/ResizeObserver loop/.test(message)) diag.log.error('console', `${message} (${path.basename(String(src || ''))}:${line})`); });
-  if (MODE === 'smoke') require('./smoke')(win, { app, diag, getWired: () => wired, getScheduler: () => scheduler, out: SMOKE, startedAt });
+  if (MODE === 'smoke') require('./smoke')(win, { app, diag, getScheduler: () => scheduler, out: SMOKE, startedAt });
   if (missedAtLaunch.length) win.webContents.once('did-finish-load', () => setTimeout(() => send('batches:missed', missedAtLaunch), 600));
   powerMonitor.on('resume', () => scheduler.tick());
+  // thermal guard: macOS reports nominal, fair, serious or critical
+  try { if (powerMonitor.getCurrentThermalState) guardState.thermal = powerMonitor.getCurrentThermalState() || 'nominal'; } catch (e) {}
+  powerMonitor.on('thermal-state-change', d => { const st = (d && d.state) || d || 'unknown'; if (st !== guardState.thermal) { diag.log.info('thermal', `${guardState.thermal} -> ${st}`); guardState.thermal = st; applyGuard(); } });
+  powerMonitor.on('on-battery', () => pollBattery());
+  powerMonitor.on('on-ac', () => pollBattery());
   app.on('activate', () => showWindow());
 });
 
@@ -416,6 +480,6 @@ app.on('before-quit', e => {
   // install a downloaded update on the way out, without reopening
   if (updater && updater.state.status === 'ready' && setting('installOnQuit', true)) { try { updater.install({ relaunch: false }); } catch (er) {} }
 });
-app.on('will-quit', () => { if (wired) { wired.assistant.stop(); try { wired.db.flush(); } catch (e) {} wired.mail.stop().catch(() => {}); } if (scheduler) { scheduler.saveNow(); scheduler.stop(); } if (power) power.shutdown(); });
+app.on('will-quit', () => { if (scheduler) { scheduler.saveNow(); scheduler.stop(); } if (power) power.shutdown(powerSaveBlocker); });
 app.on('window-all-closed', () => { if (!isMac) app.quit(); });
 }

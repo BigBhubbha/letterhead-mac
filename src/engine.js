@@ -165,6 +165,7 @@ class Campaign extends EventEmitter {
     this.nextAt = null;
     this._log('pause', reason && reason !== 'user' ? reason : 'Paused.');
     this._emit();
+    this._wake();
   }
 
   resume() {
@@ -176,6 +177,7 @@ class Campaign extends EventEmitter {
     this.state = 'running';
     this._log('resume', 'Resumed.');
     this._emit();
+    this._wake();
     if (!this._running) this.start();
   }
 
@@ -184,6 +186,7 @@ class Campaign extends EventEmitter {
     this._paused = false;
     for (const it of this.items) if (it.status === 'queued') it.status = 'skipped';
     this._log('cancel', 'Cancelled. Remaining recipients were skipped.');
+    this._wake();
     if (!this._running) { this.state = 'cancelled'; this.finishedAt = Date.now(); this._emit(); }
   }
 
@@ -207,20 +210,29 @@ class Campaign extends EventEmitter {
     return Math.round(base * f);
   }
 
+  // Waits sleep on one timer and wake up only for pause, resume or cancel. No polling, so a
+  // long interval or a long pause (daily cap, thermal) costs nothing while it waits.
+  _signal() { if (!this._sig) { let r; const p = new Promise(res => { r = res; }); this._sig = { p, r }; } return this._sig.p; }
+  _wake() { const s = this._sig; this._sig = null; if (s) s.r(); }
+  async _untilResumed() { while (this._paused && !this._cancelled) await this._signal(); }
+
   async _wait(ms) {
     let remaining = ms;
-    const tick = 100;
     this.state = 'waiting';
     this.nextAt = Date.now() + remaining;
     this._emit();
-    let wasPaused = false;
     while (remaining > 0) {
       if (this._cancelled) return;
-      if (this._paused) { wasPaused = true; await sleep(tick); continue; }
-      if (wasPaused) { wasPaused = false; this.state = 'waiting'; this.nextAt = Date.now() + remaining; this._emit(); }
-      const step = Math.min(tick, remaining);
-      await sleep(step);
-      remaining -= step;
+      if (this._paused) {
+        await this._untilResumed();
+        if (this._cancelled) return;
+        this.state = 'waiting'; this.nextAt = Date.now() + remaining; this._emit();
+        continue;
+      }
+      const t0 = Date.now(); let timer;
+      await Promise.race([new Promise(r => { timer = setTimeout(r, remaining); }), this._signal()]);
+      clearTimeout(timer);
+      remaining -= Date.now() - t0;
     }
     this.nextAt = null;
   }
@@ -235,7 +247,7 @@ class Campaign extends EventEmitter {
     try {
       while (true) {
         if (this._cancelled) break;
-        if (this._paused) { await sleep(150); continue; }
+        if (this._paused) { await this._untilResumed(); continue; }
         const item = this.items.find(i => i.status === 'queued');
         if (!item) break;
 
@@ -244,6 +256,9 @@ class Campaign extends EventEmitter {
           this.pause(`Paused at your daily cap of ${cap}. Resume later or raise the cap in Settings.`, 'cap');
           continue;
         }
+
+        const g = typeof this.o.guard === 'function' ? this.o.guard() : null;
+        if (g) { this.pause(g.reason, g.code); continue; }
 
         if (this.o.mode === 'interval' && sentThisRun > 0) {
           await this._wait(this._delay());
@@ -296,6 +311,7 @@ class Campaign extends EventEmitter {
       }
     } finally {
       try { transport.close(); } catch (e) { /* ignore */ }
+      if (typeof this.o.onIdle === 'function') { try { this.o.onIdle(); } catch (e) { /* ignore */ } }
       this._running = false;
     }
     if (this._paused) return;

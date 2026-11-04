@@ -1,9 +1,8 @@
 'use strict';
 // --smoke-test: run by the release workflow on a real Mac before anything is published.
-// Fresh data folder, no account. Visits every screen, opens the composer, the shortcuts sheet and
-// the error log, saves settings, and checks the window rendered and nothing logged an error.
+// Fresh data folder, no account. Visits every screen, opens the batch editor and the error log, saves settings, and checks the window rendered and nothing logged an error.
 const fs = require('fs');
-module.exports = function smoke(win, { app, diag, getWired, getScheduler, out, startedAt }) {
+module.exports = function smoke(win, { app, diag, getScheduler, out, startedAt }) {
   const res = { version: app.getVersion(), platform: process.platform, arch: process.arch, checks: [], ok: false };
   const check = (name, pass, detail) => { res.checks.push({ name, pass: !!pass, detail: detail === undefined ? undefined : String(detail).slice(0, 300) }); };
   const js = code => win.webContents.executeJavaScript(code, true);
@@ -24,22 +23,19 @@ module.exports = function smoke(win, { app, diag, getWired, getScheduler, out, s
       await sleep(500);
       for (let i = 0; i < 50 && !win.isDestroyed() && !win.isVisible(); i++) await sleep(200); // ready-to-show can land after load
       check('window created and visible', !win.isDestroyed() && (win.isVisible() || process.env.LETTERHEAD_SMOKE_HIDDEN), `visible=${win.isVisible()}`);
-      check('mail engine started (SQLite wasm loaded)', !!getWired());
       check('scheduler loaded', !!getScheduler());
-      const tabs = ['mail', 'assist', 'ai', 'account', 'recipients', 'letter', 'drafts', 'send', 'schedule', 'settings'];
+      const tabs = ['account', 'recipients', 'letter', 'drafts', 'send', 'schedule', 'settings'];
       for (const t of tabs) {
         await js(`go(${JSON.stringify(t)})`); await sleep(500);
         const r = await js(`(() => { const v = document.querySelector('#view-' + ${JSON.stringify(t)}); if (!v) return 'missing'; const b = v.getBoundingClientRect(); return v.classList.contains('on') && b.width > 300 && b.height > 300 && v.innerText.trim().length > 20 ? 'ok' : 'empty ' + Math.round(b.width) + 'x' + Math.round(b.height); })()`);
         check('screen ' + t, r === 'ok', r);
       }
-      await js(`go('mail'); LH2.compose({ to: [] })`); await sleep(600);
-      check('composer opens', await js(`!document.querySelector('#composer').classList.contains('hidden')`));
-      await js(`document.querySelector('#c-close').click()`); await sleep(400);
-      check('composer closes', await js(`document.querySelector('#composer').classList.contains('hidden')`));
-      await js(`document.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }))`); await sleep(300);
-      const keys = await js(`!document.querySelector('#k-veil').classList.contains('hidden')`);
-      check('keyboard shortcuts sheet opens', keys);
-      await js(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); document.querySelector('#k-veil').classList.add('hidden')`);
+      check('inbox and reply assistant are gone', await js(`!document.querySelector('#view-mail') && !document.querySelector('#view-ai') && !window.LH2`));
+      await js(`go('schedule'); openEditor()`); await sleep(500);
+      check('batch editor opens with the lid-closed option', await js(`!document.querySelector('#b-veil').classList.contains('hidden') && !!document.querySelector('#be-lid')`));
+      await js(`document.querySelector('#be-cancel').click()`); await sleep(300);
+      const pw = await js(`lh.power.status()`);
+      check('nothing kept awake with no batch sending', pw && pw.awake === false && pw.lid === 'off', JSON.stringify(pw));
       await js(`go('settings')`); await sleep(300);
       const saved = await js(`lh.settings.save({ smokeTest: true }).then(() => lh.settings.get()).then(s => s && s.smokeTest === true)`);
       check('settings save and load', saved);

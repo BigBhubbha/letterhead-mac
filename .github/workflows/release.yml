@@ -51,6 +51,9 @@ jobs:
       - name: Updater test inside Electron (asar aware fs)
         if: ${{ !cancelled() }}
         run: node_modules/.bin/electron test/updater-electron.test.js
+      - name: Upgrade from 2.1 removes old inbox and assistant data
+        if: ${{ !cancelled() }}
+        run: bash scripts/cleanup-check.sh
       - name: Signing identity (stable self-signed, from repo secrets)
         if: ${{ !cancelled() }}
         env:

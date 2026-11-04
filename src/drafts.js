@@ -38,7 +38,35 @@ function friendlyImapError(e) {
   return raw;
 }
 
+// One IMAP connection reused for a whole batch instead of a new login (TLS handshake, LOGIN,
+// LIST) twice per draft. It logs out after a minute with nothing to do, and reconnects on the
+// next draft if the server dropped it.
+class ImapSession {
+  constructor(acct, idleMs = 60000) { this.acct = acct; this.idleMs = idleMs; this.client = null; this._t = null; this._q = Promise.resolve(); }
+  async _get() {
+    if (this.client && this.client.usable) return this.client;
+    if (this.client) { try { this.client.close(); } catch (e) {} }
+    const c = new ImapFlow(imapOptions(this.acct));
+    c.on('error', () => {});
+    await c.connect();
+    this.client = c; return c;
+  }
+  use(fn) {
+    const run = async () => {
+      clearTimeout(this._t);
+      try {
+        const c = await this._get();
+        try { return await fn(c); }
+        catch (e) { if (!c.usable && this.client === c) this.client = null; throw e; }
+      } finally { this._t = setTimeout(() => this.close(), this.idleMs); if (this._t.unref) this._t.unref(); }
+    };
+    const p = this._q.then(run, run); this._q = p.catch(() => {}); return p;
+  }
+  async close() { clearTimeout(this._t); const c = this.client; this.client = null; if (c) { try { await c.logout(); } catch (e) { try { c.close(); } catch (e2) {} } } }
+}
+
 async function withClient(acct, fn) {
+  if (acct && acct._session) return acct._session.use(fn);
   const client = new ImapFlow(imapOptions(acct));
   client.on('error', () => {}); // surfaced through the awaited calls instead
   await client.connect();
@@ -189,6 +217,9 @@ async function verifyImap(acct) {
 }
 
 function campaignHooks(account, cfg) {
+  const session = new ImapSession(account);
+  account = Object.assign(Object.create(Object.getPrototypeOf(account)), account);
+  Object.defineProperty(account, '_session', { value: session, enumerable: false });
   const wrap = e => { if (e.gone) return e; const w = new Error(friendlyImapError(e)); w.imap = true; w.authenticationFailed = !!e.authenticationFailed; return w; };
   return {
     messageBuilder: async item => {
@@ -209,7 +240,8 @@ function campaignHooks(account, cfg) {
       } catch (e) { return ['sent, but cleanup on the IMAP server failed (' + friendlyImapError(e) + ')']; }
     },
     usageWeight: item => Math.max(1, item.meta.recipients.length),
+    onIdle: () => { session.close().catch(() => {}); },
   };
 }
 
-module.exports = { campaignHooks, listDrafts, fetchDraftSource, prepareRaw, afterSent, verifyImap, friendlyImapError, findFolders, imapOptions };
+module.exports = { ImapSession, campaignHooks, listDrafts, fetchDraftSource, prepareRaw, afterSent, verifyImap, friendlyImapError, findFolders, imapOptions };
