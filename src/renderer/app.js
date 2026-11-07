@@ -438,7 +438,7 @@ $('#s-test').addEventListener('click', sendTest);
 
 /* ---------------- drafts ---------------- */
 const D = S.drafts;
-const sendableDrafts = () => D.list.filter(d => d.recipients.length && !d.unreadable);
+const sendableDrafts = () => D.list.filter(d => d.recipients.length && !d.unreadable && !d.replyBlocked);
 const selectedDrafts = () => sendableDrafts().filter(d => D.sel.has(d.uid));
 const addrShort = a => a.name ? a.name : a.address;
 function fmtWhen(t) {
@@ -484,15 +484,15 @@ function renderDrafts() {
   $('#d-summary').innerHTML = `<label class="selall"><input type="checkbox" class="cbx" id="d-all"${sel.length && sel.length === ok.length ? ' checked' : ''}> Select all</label>` +
     `<span class="pill"><b>${fmtN(D.list.length)}</b> draft${D.list.length === 1 ? '' : 's'} in ${esc(D.folder)}</span>` +
     `<span class="pill"><b>${fmtN(sel.length)}</b> selected, ${fmtN(rcpts)} recipient${rcpts === 1 ? '' : 's'}</span>` +
-    (flagged ? `<span class="pill bad"><b>${flagged}</b> without a recipient, will be skipped</span>` : '') + (D.loading ? '<span class="pill">Refreshing...</span>' : '');
+    (flagged ? `<span class="pill bad"><b>${flagged}</b> will be skipped (no recipient, or a reply)</span>` : '') + (D.loading ? '<span class="pill">Refreshing...</span>' : '');
   const all = $('#d-all'); if (all) all.indeterminate = sel.length > 0 && sel.length < ok.length;
   $('#d-list').innerHTML = D.list.map(d => {
-    const flag = !d.recipients.length || d.unreadable;
+    const flag = !d.recipients.length || d.unreadable || !!d.replyBlocked;
     const first = [...d.to, ...d.cc, ...d.bcc][0];
     const more = d.recipients.length - 1;
     const who = first ? `${esc(addrShort(first))}${more > 0 ? ` <small>+${more}</small>` : ''}` : '<span style="color:var(--fail)">No recipient</span>';
     const tags = [];
-    if (flag) tags.push(`<span class="tag bad">${d.unreadable ? 'Could not be read' : 'No recipient, will be skipped'}</span>`);
+    if (flag) tags.push(`<span class="tag bad">${d.unreadable ? 'Could not be read' : d.replyBlocked ? 'Reply, Letterhead won\'t send it' : 'No recipient, will be skipped'}</span>`);
     if (d.cc.length) tags.push(`<span class="tag cc">Cc ${d.cc.length}</span>`);
     if (d.bcc.length) tags.push(`<span class="tag cc">Bcc ${d.bcc.length}</span>`);
     d.attachments.forEach(a => tags.push(`<span class="tag">${esc(a.filename)} &middot; ${fmtSize(a.size)}</span>`));
@@ -555,7 +555,7 @@ function draftChecks() {
   c.push(a && a.hasPassword ? { k: 'ok', t: 'Account connected', d: (a.fromName ? a.fromName + ', ' : '') + (a.alias || a.email || a.user) } : { k: 'no', t: 'No account connected', d: '<a href="#" data-go="account">Connect one</a>', html: true });
   if (!D.loaded) c.push({ k: 'no', t: 'Drafts not loaded', d: '<a href="#" data-go="drafts">Open the Drafts tab</a>', html: true });
   else c.push(sel.length ? { k: 'ok', t: `${fmtN(sel.length)} draft${sel.length === 1 ? '' : 's'} selected`, d: `${fmtN(rc)} recipient${rc === 1 ? '' : 's'} across To, Cc and Bcc` } : { k: 'no', t: 'No drafts selected', d: '<a href="#" data-go="drafts">Pick some on the Drafts tab</a>', html: true });
-  if (flagged) c.push({ k: 'warn', t: `${flagged} draft${flagged === 1 ? '' : 's'} without a recipient`, d: 'Left in your Drafts folder, not sent' });
+  if (flagged) c.push({ k: 'warn', t: `${flagged} draft${flagged === 1 ? '' : 's'} skipped (no recipient, or a reply)`, d: 'Left in your Drafts folder, not sent' });
   c.push({ k: 'ok', t: 'Sent as written', d: 'Subject, body, formatting and attachments come straight from each draft' });
   c.push({ k: 'ok', t: S.settings.delDraft ? 'Drafts are removed after sending' : 'Drafts are kept after sending', d: D.gmail ? 'Gmail files a copy in Sent by itself' : (S.settings.saveSent && D.sentFolder ? `A copy is saved to ${D.sentFolder}` : 'No copy is saved to Sent') });
   return c;
@@ -607,7 +607,7 @@ function renderSend() {
 function renderRunHead() {
   const r = S.run, st = r.stats, live = ['running', 'waiting', 'paused'].includes(r.state);
   $('#t-sent').textContent = fmtN(st.sent); $('#t-failed').textContent = fmtN(st.failed); $('#t-left').textContent = fmtN(st.queued + st.sending);
-  const done = st.sent + st.failed + st.skipped;
+  const done = st.sent + st.failed + st.skipped + (st.blocked || 0);
   $('#t-bar').style.width = (st.total ? done / st.total * 100 : 0) + '%';
   const titles = { running: 'Sending', waiting: 'Sending', paused: 'Paused', done: 'All done', cancelled: 'Stopped' };
   $('#s-title').textContent = (titles[r.state] || 'Sending') + (r.batchName ? `: ${r.batchName}` : '');
@@ -641,7 +641,7 @@ function tickCountdown() {
 const fmtTime = t => t ? new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' }) : '';
 function rowHtml(it) {
   const name = it.fields.first_name || it.fields.name ? esc([it.fields.first_name || it.fields.name, it.fields.first_name ? it.fields.last_name : ''].filter(Boolean).join(' ')) : '';
-  const label = { queued: 'Waiting', sending: 'Sending', sent: 'Sent', failed: 'Failed', skipped: 'Skipped' }[it.status];
+  const label = { queued: 'Waiting', sending: 'Sending', sent: 'Sent', failed: 'Failed', skipped: 'Skipped', blocked: 'Blocked (reply)' }[it.status];
   const second = S.runSource === 'drafts' ? esc(it.fields.subject || '') : name;
   return `<td class="n">${it.id + 1}</td><td class="rcpt">${esc(it.email)}${it.error ? `<span class="sub-err">${esc(it.error)}</span>` : ''}${it.note && !it.error ? `<span class="sub-note">${esc(it.note.charAt(0).toUpperCase() + it.note.slice(1))}</span>` : ''}</td><td class="${S.runSource === 'drafts' ? 'rcpt' : ''}">${second}</td><td><span class="st ${it.status}">${label}</span></td><td class="time">${fmtTime(it.sentAt)}</td>`;
 }
@@ -769,13 +769,13 @@ function batchHtml(b) {
   const fin = ['done', 'failed', 'cancelled'].includes(b.status), live = ['sending', 'paused'].includes(b.status);
   const month = new Date(b.scheduledAt).toLocaleString('en-US', { timeZone: tz, month: 'short' });
   let sub = '', subK = '', right = '';
-  const handled = (st.sent || 0) + (st.failed || 0) + (st.skipped || 0);
+  const handled = (st.sent || 0) + (st.failed || 0) + (st.skipped || 0) + (st.blocked || 0);
   if (b.status === 'scheduled') { right = `<div class="b-count" data-until="${b.scheduledAt}">${fmtUntil(b.scheduledAt - Date.now())}</div>`; sub = `Starts ${fmtAt(b.scheduledAt, tz)}${tz !== SYS_TZ ? `, which is ${fmtClock(b.scheduledAt, SYS_TZ)} ${tzAbbr(b.scheduledAt, SYS_TZ)} here` : ''}`; }
   else if (b.status === 'queued') sub = b.queueAhead ? `Starts as soon as ${esc(b.queueAhead)} finishes` : 'Starting…';
   else if (b.status === 'sending') { right = `<div class="b-count">${fmtN(st.sent || 0)}<small>of ${fmtN(st.total)} sent</small></div>`; sub = b.nextAt && b.nextAt > Date.now() ? `Next email <span data-until="${b.nextAt}">${fmtUntil(b.nextAt - Date.now())}</span>` : 'Sending now'; }
   else if (b.status === 'paused') { right = `<div class="b-count">${fmtN(st.sent || 0)}<small>of ${fmtN(st.total)} sent</small></div>`; sub = b.pauseReason && b.pauseReason !== 'user' ? esc(b.pauseReason) : 'Paused. Nothing goes out until you resume.'; subK = 'warn'; }
   else if (b.status === 'missed') { sub = esc(missedText(b)) + ' Nothing was sent on its own.'; subK = 'warn'; }
-  else if (b.status === 'done') sub = `${fmtN(st.sent || 0)} sent${st.failed ? `, ${fmtN(st.failed)} failed` : ''}${st.skipped ? `, ${fmtN(st.skipped)} skipped` : ''}. Finished ${b.finishedAt ? fmtAt(b.finishedAt) : ''}`;
+  else if (b.status === 'done') sub = `${fmtN(st.sent || 0)} sent${st.failed ? `, ${fmtN(st.failed)} failed` : ''}${st.skipped ? `, ${fmtN(st.skipped)} skipped` : ''}${st.blocked ? `, ${fmtN(st.blocked)} blocked as replies` : ''}. Finished ${b.finishedAt ? fmtAt(b.finishedAt) : ''}`;
   else if (b.status === 'failed') { sub = esc(b.lastError || `${fmtN(st.failed || 0)} failed, none sent.`); subK = 'bad'; }
   else if (b.status === 'cancelled') sub = handled ? `Stopped after ${fmtN(st.sent || 0)} sent.` : 'Cancelled before it started.';
   const A = (act, label, cls = 'ghost') => `<button class="${cls}" data-bact="${act}" data-id="${b.id}">${label}</button>`;

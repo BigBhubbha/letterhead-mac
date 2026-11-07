@@ -3,6 +3,7 @@
 const nodemailer = require('nodemailer');
 const { EventEmitter } = require('events');
 const path = require('path');
+const guard = require('./replyguard');
 
 function normKey(k) {
   return String(k).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
@@ -127,7 +128,7 @@ class Campaign extends EventEmitter {
   }
 
   stats() {
-    const s = { total: this.items.length, queued: 0, sending: 0, sent: 0, failed: 0, skipped: 0 };
+    const s = { total: this.items.length, queued: 0, sending: 0, sent: 0, failed: 0, skipped: 0, blocked: 0 };
     for (const it of this.items) s[it.status]++;
     return s;
   }
@@ -192,7 +193,7 @@ class Campaign extends EventEmitter {
 
   retryFailed() {
     let n = 0;
-    for (const it of this.items) if (it.status === 'failed' || it.status === 'skipped') { it.status = 'queued'; it.error = null; n++; }
+    for (const it of this.items) if (it.status === 'failed' || it.status === 'skipped' || it.status === 'blocked') { it.status = 'queued'; it.error = null; n++; }
     if (!n) return 0;
     this._log('retry', `Retrying ${n} recipient${n === 1 ? '' : 's'}.`);
     this._cancelled = false;
@@ -277,6 +278,9 @@ class Campaign extends EventEmitter {
         this._emit(item);
         try {
           const msg = this.o.messageBuilder ? await this.o.messageBuilder(item) : buildMessage(this.o.account, this.o.template, item.fields, item.email);
+          // last gate before SMTP: never send anything that looks like a reply
+          const why = guard.messageReplyReason(msg);
+          if (why) throw new guard.ReplyBlocked(why);
           const info = await transport.sendMail(msg);
           item.status = 'sent'; item.sentAt = Date.now(); item.messageId = info.messageId || null; item.error = null;
           sentThisRun++;
@@ -290,6 +294,11 @@ class Campaign extends EventEmitter {
             catch (e) { item.note = 'Sent, but cleanup failed: ' + e.message; this._log('note', item.note, item); }
           }
         } catch (err) {
+          if (err && err.replyBlocked) {
+            item.status = 'blocked'; item.error = 'Blocked: ' + err.message; delete item._raw;
+            this._log('blocked', item.error, item); this._emit(item);
+            continue;
+          }
           const kind = classify(err);
           item.status = 'failed'; item.error = friendlyError(err);
           this._log('fail', item.error, item);
@@ -319,7 +328,7 @@ class Campaign extends EventEmitter {
     this.finishedAt = Date.now();
     this.state = this._cancelled ? 'cancelled' : 'done';
     const s = this.stats();
-    this._log('done', `${this._cancelled ? 'Stopped' : 'Finished'}: ${s.sent} sent, ${s.failed} failed${s.skipped ? `, ${s.skipped} skipped` : ''}.`);
+    this._log('done', `${this._cancelled ? 'Stopped' : 'Finished'}: ${s.sent} sent, ${s.failed} failed${s.skipped ? `, ${s.skipped} skipped` : ''}${s.blocked ? `, ${s.blocked} blocked as replies` : ''}.`);
     this._emit();
   }
 }
@@ -338,6 +347,8 @@ async function sendTest(acct, template, fields, factory) {
   try {
     const to = acct.fromEmail || acct.user;
     const msg = buildMessage(acct, template, fields, to);
+    const why = guard.messageReplyReason(msg);
+    if (why) return { ok: false, error: 'Letterhead only sends new emails, not replies. ' + why + '.' };
     msg.subject = '[Test] ' + msg.subject;
     const info = await t.sendMail(msg);
     return { ok: true, to, messageId: info.messageId };

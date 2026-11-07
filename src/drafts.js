@@ -4,6 +4,7 @@
 const { ImapFlow } = require('imapflow');
 const { simpleParser } = require('mailparser');
 const crypto = require('crypto');
+const guard = require('./replyguard');
 
 const DRAFT_NAMES = /^(drafts|draft|brouillons|entw(u|ü)rfe|borradores|bozze|concepten|\[gmail\]\/drafts|\[google mail\]\/drafts|inbox[./]drafts)$/i;
 const SENT_NAMES = /^(sent|sent mail|sent items|sent messages|\[gmail\]\/sent mail|\[google mail\]\/sent mail|inbox[./]sent)$/i;
@@ -107,6 +108,7 @@ async function summarize(uid, source, extra) {
     date: p.date ? p.date.getTime() : (extra && extra.internalDate ? new Date(extra.internalDate).getTime() : null),
     size: source.length,
     from: addrList(p.from)[0] || null,
+    replyBlocked: guard.rawReplyReason(source) || guard.subjectReason(p.subject) || null,
   };
 }
 
@@ -121,7 +123,7 @@ async function listDrafts(acct) {
       if (client.mailbox.exists > 0) {
         for await (const m of client.fetch('1:*', { uid: true, source: true, internalDate: true, flags: true })) {
           try { drafts.push(await summarize(m.uid, m.source, m)); }
-          catch (e) { drafts.push({ uid: m.uid, subject: '(could not read this draft)', to: [], cc: [], bcc: [], recipients: [], snippet: e.message, attachments: [], unreadable: true }); }
+          catch (e) { drafts.push({ uid: m.uid, subject: '(could not read this draft)', to: [], cc: [], bcc: [], recipients: [], snippet: e.message, attachments: [], unreadable: true, replyBlocked: 'Could not be read, so it cannot be checked' }); }
         }
       }
     } finally { lock.release(); }
@@ -223,13 +225,21 @@ function campaignHooks(account, cfg) {
   const wrap = e => { if (e.gone) return e; const w = new Error(friendlyImapError(e)); w.imap = true; w.authenticationFailed = !!e.authenticationFailed; return w; };
   return {
     messageBuilder: async item => {
+      const m = item.meta;
+      if (!m || (!m.uid && !m.messageId && !m.subject)) throw new guard.ReplyBlocked('This queued draft has no saved details to check it with, so it was not sent. It is still in Gmail.');
       let got;
       try { got = await fetchDraftSource(account, cfg.folder, item.meta.uid, item.meta); } catch (e) { throw wrap(e); }
-      // re-read recipients from the draft as it is now
-      const now = await summarize(got.uid, got.source);
+      // check the draft as it is right now, not as it was when the batch was made
+      let why = guard.rawReplyReason(got.source);
+      if (why) throw new guard.ReplyBlocked(why + '. Left in your Drafts, not sent.');
+      let now;
+      try { now = await summarize(got.uid, got.source); } catch (e) { throw new guard.ReplyBlocked('Could not read this draft safely, so it was not sent.'); }
+      if (now.replyBlocked) throw new guard.ReplyBlocked(now.replyBlocked + '. Left in your Drafts, not sent.');
       if (!now.recipients.length) throw Object.assign(new Error('This draft has no recipient now. Add one in your mail app, then retry.'), { gone: true });
       item.meta.recipients = now.recipients; item.meta.uid = got.uid;
       const raw = prepareRaw(got.source, account);
+      why = guard.rawReplyReason(raw);
+      if (why) throw new guard.ReplyBlocked(why + '. Left in your Drafts, not sent.');
       Object.defineProperty(item, '_raw', { value: raw, configurable: true, writable: true, enumerable: false });
       return { envelope: { from: account.fromEmail || account.user, to: item.meta.recipients }, raw };
     },

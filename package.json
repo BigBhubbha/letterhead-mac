@@ -1,6 +1,6 @@
 {
   "name": "letterhead",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Bulk and scheduled email from your own account, for macOS",
   "main": "src/main.js",
   "scripts": {
