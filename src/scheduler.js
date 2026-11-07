@@ -163,7 +163,7 @@ class Scheduler extends EventEmitter {
     const b = this.get(id); if (!b || !b.items) return 0;
     if (this.activeBatchId === id && this.active) { const r = this.active.retryFailed(); this.save(); return r; }
     let n = 0;
-    for (const it of b.items) if (it.status === 'failed' || it.status === 'skipped') { it.status = 'queued'; it.error = null; n++; }
+    for (const it of b.items) if (it.status === 'failed' || it.status === 'skipped' || it.status === 'blocked') { it.status = 'queued'; it.error = null; n++; }
     if (n) { b.status = 'scheduled'; b.scheduledAt = this.now(); b.missedReason = null; this.changed(); setImmediate(() => this.tick()); }
     return n;
   }
@@ -216,7 +216,7 @@ class Scheduler extends EventEmitter {
   startBatch(b) {
     let recipients;
     if (b.items) recipients = b.items.map(it => ({ ...it }));
-    else if (b.kind === 'drafts') recipients = (b.drafts.items || []).map(d => ({ email: d.recipients[0] + (d.recipients.length > 1 ? ` +${d.recipients.length - 1}` : ''), fields: { subject: d.subject }, meta: { uid: d.uid, messageId: d.messageId, subject: d.subject, recipients: d.recipients } }));
+    else if (b.kind === 'drafts') recipients = (b.drafts.items || []).map(d => ({ email: d.recipients[0] + (d.recipients.length > 1 ? ` +${d.recipients.length - 1}` : ''), fields: { subject: d.subject }, meta: { uid: d.uid, messageId: d.messageId, subject: d.subject, recipients: d.recipients }, ...(d.replyBlocked ? { status: 'blocked', error: 'Blocked: ' + d.replyBlocked } : {}) }));
     else recipients = (b.merge.recipients || []).filter(r => engine.isEmail(r.email)).map(r => ({ email: r.email, fields: r.fields }));
     const opts = {
       batchId: b.id, batchName: b.name, mode: b.mode, intervalMs: b.intervalMs, jitterPct: b.jitterPct, recipients,
@@ -242,7 +242,7 @@ class Scheduler extends EventEmitter {
       const s = c.stats();
       b.status = u.state === 'cancelled' ? 'cancelled' : (s.sent === 0 && s.failed > 0 ? 'failed' : 'done');
       b.finishedAt = this.now(); b.nextAt = null;
-      this.emit('notify', { title: `${b.name} ${b.status === 'done' ? 'finished' : b.status === 'failed' ? 'failed' : 'stopped'}`, body: `${s.sent} sent, ${s.failed} failed${s.skipped ? `, ${s.skipped} skipped` : ''}.` });
+      this.emit('notify', { title: `${b.name} ${b.status === 'done' ? 'finished' : b.status === 'failed' ? 'failed' : 'stopped'}`, body: `${s.sent} sent, ${s.failed} failed${s.skipped ? `, ${s.skipped} skipped` : ''}${s.blocked ? `, ${s.blocked} blocked as replies` : ''}.` });
       this._finished(c);
     }
     b.stats = u.stats || countStats(b.items);
@@ -260,7 +260,7 @@ class Scheduler extends EventEmitter {
 }
 
 function countStats(items) {
-  const s = { total: items.length, queued: 0, sending: 0, sent: 0, failed: 0, skipped: 0 };
+  const s = { total: items.length, queued: 0, sending: 0, sent: 0, failed: 0, skipped: 0, blocked: 0 };
   for (const it of items) s[it.status] = (s[it.status] || 0) + 1;
   return s;
 }
